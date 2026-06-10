@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Professional-grade Discounted Cash Flow (DCF) valuation model with real-time calculation, sensitivity analysis, and chart visualization.">
+    <title>DCF Model Builder — Quantitative Modeler</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- html2pdf for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HEADER
+     ═══════════════════════════════════════════════════════════ -->
+<header class="app-header">
+    <div class="header-brand">
+        <div class="logo-icon">₿</div>
+        <div>
+            <h1>DCF Model Builder</h1>
+            <div class="subtitle">Quantitative Valuation Engine</div>
+        </div>
+    </div>
+
+    <div class="header-actions">
+        <div class="ticker-group">
+            <input type="text" id="tickerInput" placeholder="AAPL" value="AAPL" maxlength="6">
+            <button class="btn btn-primary" id="btnFetch" title="Fetch data from Yahoo Finance">
+                <span class="btn-icon">📡</span> Fetch
+            </button>
+        </div>
+        <button class="btn" id="btnExportCSV" title="Export results to CSV">
+            <span class="btn-icon">📊</span> CSV
+        </button>
+        <button class="btn" id="btnExportPDF" title="Export results to PDF">
+            <span class="btn-icon">📄</span> PDF
+        </button>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════
+     APP CONTAINER
+     ═══════════════════════════════════════════════════════════ -->
+<div class="app-container">
+
+    <!-- ─── SIDEBAR ──────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-title">Model Inputs</div>
+
+        <!-- Company Info -->
+        <div class="input-group" id="groupCompany">
+            <div class="input-group-header" onclick="toggleGroup('groupCompany')">
+                <h3>🏢 Company Info</h3>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="input-group-body">
+                <div class="field">
+                    <label>Company Name</label>
+                    <input type="text" id="companyName" value="Apple Inc.">
+                </div>
+                <div class="field">
+                    <label>Industry</label>
+                    <select id="industry">
+                        <option value="Technology" selected>Technology</option>
+                        <option value="Healthcare">Healthcare</option>
+                        <option value="Consumer Staples">Consumer Staples</option>
+                        <option value="Consumer Discretionary">Consumer Discretionary</option>
+                        <option value="Financials">Financials</option>
+                        <option value="Energy">Energy</option>
+                        <option value="Industrials">Industrials</option>
+                        <option value="Real Estate">Real Estate</option>
+                        <option value="Telecommunications">Telecommunications</option>
+                        <option value="Utilities">Utilities</option>
+                        <option value="Materials">Materials</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Revenue & Growth -->
+        <div class="input-group" id="groupRevenue">
+            <div class="input-group-header" onclick="toggleGroup('groupRevenue')">
+                <h3>📈 Revenue & Growth</h3>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="input-group-body">
+                <div class="field">
+                    <label>Base Year Revenue <span class="unit">(USD mm)</span></label>
+                    <input type="number" id="revenue" value="391035" step="100">
+                </div>
+                <div class="field">
+                    <label>Revenue Growth Rate <span class="unit">(%)</span></label>
+                    <input type="number" id="growthRate" value="5" step="0.5">
+                </div>
+                <div class="field">
+                    <label>Forecast Period <span class="unit">(years)</span></label>
+                    <input type="number" id="forecastYears" value="5" min="1" max="15" step="1">
+                </div>
+                <div class="toggle-field">
+                    <label>Two-Stage Growth</label>
+                    <label class="toggle">
+                        <input type="checkbox" id="useMultiStage">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div id="multiStageFields" style="display:none;">
+                    <div class="field-row">
+                        <div class="field">
+                            <label>Stage 1 Ends <span class="unit">(Year)</span></label>
+                            <input type="number" id="stageBreak" value="3" min="1" max="14">
+                        </div>
+                        <div class="field">
+                            <label>Stage 2 Growth <span class="unit">(%)</span></label>
+                            <input type="number" id="growthRateStage2" value="3" step="0.5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Margins & Costs -->
+        <div class="input-group" id="groupMargins">
+            <div class="input-group-header" onclick="toggleGroup('groupMargins')">
+                <h3>💰 Margins & Costs</h3>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="input-group-body">
+                <div class="field-row">
+                    <div class="field">
+                        <label>EBIT Margin <span class="unit">(%)</span></label>
+                        <input type="number" id="ebitMargin" value="31.5" step="0.5">
+                    </div>
+                    <div class="field">
+                        <label>Tax Rate <span class="unit">(%)</span></label>
+                        <input type="number" id="taxRate" value="16" step="0.5">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label>D&A <span class="unit">(% rev)</span></label>
+                        <input type="number" id="daPct" value="3" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label>CapEx <span class="unit">(% rev)</span></label>
+                        <input type="number" id="capexPct" value="2.8" step="0.1">
+                    </div>
+                </div>
+                <div class="field">
+                    <label>ΔNWC <span class="unit">(% of rev growth)</span></label>
+                    <input type="number" id="nwcPct" value="2" step="0.5">
+                </div>
+                <div class="toggle-field">
+                    <label>EBIT Margin Fade</label>
+                    <label class="toggle">
+                        <input type="checkbox" id="useMarginFade">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div id="marginFadeField" style="display:none;">
+                    <div class="field">
+                        <label>Terminal EBIT Margin <span class="unit">(%)</span></label>
+                        <input type="number" id="ebitMarginTerminal" value="25" step="0.5">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- WACC Components -->
+        <div class="input-group" id="groupWACC">
+            <div class="input-group-header" onclick="toggleGroup('groupWACC')">
+                <h3>⚖️ WACC Components</h3>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="input-group-body">
+                <div class="field-row">
+                    <div class="field">
+                        <label>Risk-Free Rate <span class="unit">(%)</span></label>
+                        <input type="number" id="rf" value="4.3" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label>Equity Risk Premium <span class="unit">(%)</span></label>
+                        <input type="number" id="erp" value="5.5" step="0.1">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label>Beta (Levered)</label>
+                        <input type="number" id="beta" value="1.24" step="0.01">
+                    </div>
+                    <div class="field">
+                        <label>Pre-Tax Cost of Debt <span class="unit">(%)</span></label>
+                        <input type="number" id="kd" value="3.5" step="0.1">
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Debt / (Debt + Equity) <span class="unit">(%)</span></label>
+                    <input type="number" id="dWeight" value="15" step="1">
+                </div>
+            </div>
+        </div>
+
+        <!-- Terminal Value -->
+        <div class="input-group" id="groupTerminal">
+            <div class="input-group-header" onclick="toggleGroup('groupTerminal')">
+                <h3>♾️ Terminal Value</h3>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="input-group-body">
+                <div class="field">
+                    <label>Terminal Growth Rate <span class="unit">(%)</span></label>
+                    <input type="number" id="tgr" value="3" step="0.25">
+                </div>
+                <div class="field">
+                    <label>Exit EV/EBITDA Multiple <span class="unit">(Industry Default)</span></label>
+                    <input type="number" id="exitMultiple" value="20" step="0.5">
+                </div>
+            </div>
+        </div>
+
+        <!-- Capital Structure -->
+        <div class="input-group" id="groupCapital">
+            <div class="input-group-header" onclick="toggleGroup('groupCapital')">
+                <h3>🏦 Capital Structure</h3>
+                <span class="chevron">▼</span>
+            </div>
+            <div class="input-group-body">
+                <div class="field">
+                    <label>Shares Outstanding <span class="unit">(millions)</span></label>
+                    <input type="number" id="shares" value="15115" step="1">
+                </div>
+                <div class="field">
+                    <label>Net Debt <span class="unit">(USD mm, negative = net cash)</span></label>
+                    <input type="number" id="netDebt" value="-49000" step="100">
+                </div>
+            </div>
+        </div>
+
+        <!-- Calculate Button -->
+        <div class="sidebar-actions">
+            <button class="btn btn-primary btn-lg" id="btnCalculate" style="width:100%; justify-content:center;">
+                <span class="btn-icon">⚡</span> Calculate DCF
+            </button>
+            <button class="btn btn-success btn-lg" id="btnReset" style="width:100%; justify-content:center;">
+                <span class="btn-icon">🔄</span> Reset to Defaults
+            </button>
+        </div>
+    </aside>
+
+    <!-- ─── MAIN CONTENT ─────────────────────────────────────── -->
+    <main class="main-content" id="mainContent">
+
+        <!-- Empty state (shown before first calculation) -->
+        <div class="empty-state" id="emptyState">
+            <div class="icon">📐</div>
+            <p>Configure your model inputs on the left and click <strong>Calculate DCF</strong> to build a complete valuation model.</p>
+        </div>
+
+        <!-- Results container (hidden until calculated) -->
+        <div id="resultsContainer" style="display:none;">
+
+            <!-- Hero Summary Cards -->
+            <div class="results-hero stagger" id="heroCards"></div>
+
+            <!-- Section 1: FCF Projection -->
+            <div class="section animate-in" id="section1">
+                <div class="section-header">
+                    <h2><span class="section-number">1</span> Income Statement & FCF Projection</h2>
+                </div>
+                <div class="section-body" id="section1Body"></div>
+            </div>
+
+            <!-- Section 2: WACC -->
+            <div class="section animate-in" id="section2">
+                <div class="section-header">
+                    <h2><span class="section-number">2</span> WACC Calculation</h2>
+                </div>
+                <div class="section-body" id="section2Body"></div>
+            </div>
+
+            <!-- Section 3: Terminal Value -->
+            <div class="section animate-in" id="section3">
+                <div class="section-header">
+                    <h2><span class="section-number">3</span> Terminal Value</h2>
+                </div>
+                <div class="section-body" id="section3Body"></div>
+            </div>
+
+            <!-- Section 4: PV of Cash Flows -->
+            <div class="section animate-in" id="section4">
+                <div class="section-header">
+                    <h2><span class="section-number">4</span> Present Value of Cash Flows</h2>
+                </div>
+                <div class="section-body" id="section4Body"></div>
+            </div>
+
+            <!-- Section 5: Equity Bridge -->
+            <div class="section animate-in" id="section5">
+                <div class="section-header">
+                    <h2><span class="section-number">5</span> Equity Bridge</h2>
+                </div>
+                <div class="section-body" id="section5Body"></div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-grid stagger" id="chartsGrid">
+                <div class="chart-card">
+                    <canvas id="chartFCF"></canvas>
+                </div>
+                <div class="chart-card">
+                    <canvas id="chartDonut"></canvas>
+                </div>
+                <div class="chart-card">
+                    <canvas id="chartLines"></canvas>
+                </div>
+            </div>
+
+            <!-- Section 6: Sensitivity Analysis -->
+            <div class="section animate-in" id="section6">
+                <div class="section-header">
+                    <h2><span class="section-number">6</span> Sensitivity Analysis</h2>
+                    <span style="font-size:.72rem; color:var(--c-text-3);">Implied Share Price (USD)</span>
+                </div>
+                <div class="section-body" id="section6Body"></div>
+            </div>
+
+            <!-- Sanity Checks -->
+            <div class="sanity-checks" id="sanityChecks"></div>
+
+            <!-- Section 7: Assumptions -->
+            <div class="section animate-in" id="section7">
+                <div class="section-header">
+                    <h2><span class="section-number">7</span> Key Assumptions Summary</h2>
+                </div>
+                <div class="section-body" id="section7Body"></div>
+            </div>
+
+            <!-- Model Commentary -->
+            <div class="commentary" id="commentary">
+                <h3>📝 Model Commentary</h3>
+                <p id="commentaryText"></p>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Scripts -->
+<script src="dcf-engine.js"></script>
+<script src="chart-utils.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
