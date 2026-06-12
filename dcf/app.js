@@ -558,70 +558,142 @@ function renderCharts(r) {
 //  YAHOO FINANCE FETCH
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Industry map: Yahoo Finance industry string → our dropdown value
+ */
+const INDUSTRY_MAP = {
+    'Consumer Electronics':          'Technology',
+    'Software—Application':          'Technology',
+    'Semiconductors':                'Technology',
+    'Internet Content & Information':'Technology',
+    'Drug Manufacturers':            'Healthcare',
+    'Biotechnology':                 'Healthcare',
+    'Medical Devices':               'Healthcare',
+    'Oil & Gas E&P':                 'Energy',
+    'Oil & Gas Integrated':          'Energy',
+    'Banks—Diversified':             'Financials',
+    'Insurance—Diversified':         'Financials',
+    'Grocery Stores':                'Consumer Staples',
+    'Household Products':            'Consumer Staples',
+    'Auto Manufacturers':            'Consumer Discretionary',
+    'Specialty Retail':              'Consumer Discretionary',
+    'Telecom Services':              'Telecommunications',
+    'REIT—Diversified':              'Real Estate',
+    'Utilities—Regulated Electric':  'Utilities',
+};
+
 async function fetchYahooFinance(ticker) {
     const btn = document.getElementById('btnFetch');
     btn.disabled = true;
     btn.innerHTML = '<span class="loading-spinner"></span> Fetching...';
 
-    const modules = 'financialData,defaultKeyStatistics,incomeStatementHistory,balanceSheetHistory';
-    const apiUrl  = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${modules}`;
+    // ── 1. Try local Python proxy first (most reliable, no CORS) ──
+    const localProxyUrl = `http://localhost:8765/api/fetch?ticker=${encodeURIComponent(ticker)}`;
 
-    // Try multiple CORS proxies
-    const proxies = [
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    try {
+        const resp = await fetch(localProxyUrl, { signal: AbortSignal.timeout(5000) });
+        if (resp.ok) {
+            const json = await resp.json();
+            if (json.ok && json.data) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="btn-icon">📡</span> Fetch';
+                populateFormFromProxy(json.data);
+                showToast(`✅ Loaded ${ticker} via local server`, 'success');
+                return;
+            }
+        }
+    } catch (_) {
+        // Local proxy not running — fall through to CORS proxies
+    }
+
+    // ── 2. Fallback: public CORS proxies ──────────────────────────
+    const yahooUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}`
+                   + `?modules=financialData,defaultKeyStatistics,summaryProfile`;
+
+    const corsProxies = [
+        `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
     ];
 
-    let data = null;
-
-    for (const makeProxy of proxies) {
+    let raw = null;
+    for (const proxyUrl of corsProxies) {
         try {
-            const proxyUrl = makeProxy(apiUrl);
             const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
             if (!resp.ok) continue;
-            data = await resp.json();
-            if (data?.quoteSummary?.result?.[0]) break;
-            data = null;
-        } catch (e) {
-            continue;
-        }
+            const json = await resp.json();
+            if (json?.quoteSummary?.result?.[0]) { raw = json; break; }
+        } catch (_) { continue; }
     }
 
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">📡</span> Fetch';
 
-    if (!data || !data.quoteSummary?.result?.[0]) {
-        showToast(`Could not fetch data for ${ticker}. Please enter values manually.`, 'error');
+    if (!raw) {
+        showToast(
+            `⚠️ Could not fetch ${ticker}. Run server.py for reliable data, or enter values manually.`,
+            'error'
+        );
         return;
     }
 
+    // Parse raw Yahoo Finance quoteSummary response
     try {
-        const result = data.quoteSummary.result[0];
-        const fd = result.financialData || {};
+        const result = raw.quoteSummary.result[0];
+        const fd = result.financialData        || {};
         const ks = result.defaultKeyStatistics || {};
+        const sp = result.summaryProfile       || {};
 
-        // Populate form
-        if (fd.totalRevenue?.raw)       setVal('revenue', (fd.totalRevenue.raw / 1e6).toFixed(0));
-        if (fd.ebitMargins?.raw)        setVal('ebitMargin', (fd.ebitMargins.raw * 100).toFixed(1));
-        if (ks.beta?.raw)               setVal('beta', ks.beta.raw.toFixed(2));
-        if (ks.sharesOutstanding?.raw)   setVal('shares', (ks.sharesOutstanding.raw / 1e6).toFixed(0));
+        const payload = {
+            ticker,
+            companyName:       sp.longName || ticker,
+            totalRevenue:      fd.totalRevenue?.raw,
+            ebitMargins:       fd.ebitMargins?.raw,
+            totalDebt:         fd.totalDebt?.raw,
+            totalCash:         fd.totalCash?.raw,
+            revenueGrowth:     fd.revenueGrowth?.raw,
+            beta:              ks.beta?.raw,
+            sharesOutstanding: ks.sharesOutstanding?.raw,
+            industry:          sp.industry || '',
+        };
 
-        // Net Debt = totalDebt - totalCash
-        const totalDebt = fd.totalDebt?.raw || 0;
-        const totalCash = fd.totalCash?.raw || 0;
-        const netDebt = (totalDebt - totalCash) / 1e6;
-        setVal('netDebt', netDebt.toFixed(0));
-
-        // Revenue growth (try to calculate from earnings data)
-        if (fd.revenueGrowth?.raw) {
-            setVal('growthRate', (fd.revenueGrowth.raw * 100).toFixed(1));
-        }
-
-        document.getElementById('companyName').value = ticker;
-
-        showToast(`Successfully loaded data for ${ticker}`, 'success');
+        populateFormFromProxy(payload);
+        showToast(`✅ Loaded ${ticker} via CORS proxy`, 'success');
     } catch (e) {
-        showToast(`Error parsing data for ${ticker}: ${e.message}`, 'error');
+        showToast(`Error parsing data: ${e.message}`, 'error');
+    }
+}
+
+/**
+ * Populate sidebar form fields from a normalised data payload.
+ * Works for both local proxy response and raw Yahoo quoteSummary.
+ */
+function populateFormFromProxy(d) {
+    if (d.totalRevenue)      setVal('revenue',   (d.totalRevenue / 1e6).toFixed(0));
+    if (d.ebitMargins != null) setVal('ebitMargin', (d.ebitMargins * 100).toFixed(1));
+    if (d.beta != null)      setVal('beta',       d.beta.toFixed(2));
+    if (d.sharesOutstanding) setVal('shares',     (d.sharesOutstanding / 1e6).toFixed(0));
+    if (d.revenueGrowth != null) setVal('growthRate', (d.revenueGrowth * 100).toFixed(1));
+
+    // Net Debt
+    const debt = d.totalDebt || 0;
+    const cash = d.totalCash || 0;
+    setVal('netDebt', ((debt - cash) / 1e6).toFixed(0));
+
+    // Company name
+    if (d.companyName && d.companyName !== d.ticker) {
+        document.getElementById('companyName').value = d.companyName;
+    } else {
+        document.getElementById('companyName').value = d.ticker || '';
+    }
+
+    // Industry → update exit multiple
+    if (d.industry) {
+        const mapped = INDUSTRY_MAP[d.industry];
+        if (mapped) {
+            const sel = document.getElementById('industry');
+            sel.value = mapped;
+            sel.dispatchEvent(new Event('change')); // trigger exit multiple update
+        }
     }
 }
 
