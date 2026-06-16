@@ -12,11 +12,12 @@ Each model lives in its own directory with a self-contained codebase and documen
 |---|-------|-----------|-------|--------|
 | 1 | [DCF Model Builder](#1-dcf-model-builder) | `dcf/` | JavaScript · Python | Live |
 | 2 | [Apple DCF — Automated Pipeline](#2-apple-dcf--automated-pipeline) | `apple_dcf/` | Python · Excel | Live |
-| 3 | LBO Model | `lbo/` | — | Planned |
-| 4 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
-| 5 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
-| 6 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
-| 7 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
+| 3 | [QQQ High Growth Screener](#3-qqq-high-growth-screener) | `qqq_screener/` | Python · Excel | Live |
+| 4 | LBO Model | `lbo/` | — | Planned |
+| 5 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
+| 6 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
+| 7 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
+| 8 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
 
 ---
 
@@ -63,6 +64,31 @@ python run.py
 ```
 
 > See `apple_dcf/antigravity_brief.md` for the full architecture and data source map.
+
+---
+
+## 3. QQQ High Growth Screener
+
+Screens NASDAQ-100 constituents (ranked 26–100 by market cap, configurable)
+against a 5-point high-growth checklist using live yfinance data.
+
+**What it does**
+- Pulls NASDAQ-100 constituents from Wikipedia and ranks them by live market cap
+- Scores each name 0–5 on: revenue growth, revenue acceleration, gross margin
+  (high & expanding), Rule of 40, and analyst EPS revisions
+- Outputs a scored console table plus a 3-sheet Excel workbook (Results,
+  Shortlist, Data Quality)
+
+**Stack:** Python · yfinance · openpyxl
+
+```bash
+cd qqq_screener
+pip install yfinance pandas numpy openpyxl requests lxml
+python run.py
+# output → qqq_screener/output/qqq_screener_output.xlsx
+```
+
+> See `qqq_screener/README.md` for the checklist definitions and config options.
 
 ---
 
