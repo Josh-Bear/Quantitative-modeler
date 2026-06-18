@@ -218,23 +218,27 @@ bl-optimizer/
 
 ## ลำดับการสร้าง (Priority)
 
+> **สถานะ:** สร้างเสร็จแล้วเป็น vanilla-JS + Python stdlib proxy (แทน React/Vite
+> เพื่อให้ตรงกับ convention ของ repo — รันได้ทันทีด้วย `python server.py` ไม่ต้อง npm)
+> ดู `README.md`
+
 ### Phase 1 — Core ทำงานได้ก่อน
 
-- [ ] BL engine (`matrix.js` + `blacklitterman.js`)
-- [ ] Yahoo Finance fetcher (`yahoo.js`)
-- [ ] Setup page พื้นฐาน
-- [ ] Manual views + Results table
+- [x] BL engine (`engine/matrix.js` + `engine/blacklitterman.js`)
+- [x] Yahoo Finance fetcher (`server.py` → `/api/data`)
+- [x] Setup page พื้นฐาน
+- [x] Manual views + Results table
 
 ### Phase 2 — UX ดีขึ้น
 
-- [ ] Auto signal generator
-- [ ] Efficient Frontier chart
-- [ ] Risk metrics (Sharpe, Tracking Error)
-- [ ] Responsive design
+- [x] Auto signal generator (Momentum / Mean-Reversion / Relative Strength)
+- [x] Efficient Frontier chart (canvas scatter)
+- [x] Risk metrics (Sharpe, Tracking Error)
+- [x] Responsive design
 
 ### Phase 3 — Nice to have
 
-- [ ] Export CSV / PDF
+- [x] Export CSV + Copy summary
 - [ ] Save / load portfolio config
 - [ ] Multiple portfolio comparison
 - [ ] Simple backtest

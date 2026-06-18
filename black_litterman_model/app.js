@@ -1,0 +1,540 @@
+// ══════════════════════════════════════════════════════════════
+// app.js — UI state, page navigation and wiring for the BL optimizer
+// ══════════════════════════════════════════════════════════════
+
+const PRESETS = {
+  tech:    ['AAPL', 'MSFT', 'GOOGL', 'NVDA'],
+  finance: ['JPM', 'BAC', 'GS', 'MS'],
+  energy:  ['XOM', 'CVX', 'COP', 'SLB'],
+  mixed:   ['AAPL', 'JPM', 'XOM', 'JNJ'],
+  thai:    ['PTT.BK', 'AOT.BK', 'KBANK.BK', 'CPF.BK'],
+};
+
+const CONFIDENCE = {
+  'สูงมาก':   0.0002,
+  'สูง':      0.0005,
+  'ปานกลาง':  0.0010,
+  'ต่ำ':      0.0020,
+  'ต่ำมาก':    0.0050,
+};
+
+// ── Risk / constraint config (BugFix) ─────────────────────────
+const RISK_FREE  = 0.05;   // annual T-bill, for Sharpe (#5)
+const MAX_WEIGHT = 0.40;   // per-stock cap (#2)
+const MIN_WEIGHT = 0.05;   // per-stock floor (#2)
+const Q_FLOOR    = 0.03;   // auto-view expected return floor (#3)
+const Q_CAP      = 0.15;   // auto-view expected return cap   (#3)
+
+// Clamp an auto-generated view's Q into [Q_FLOOR, Q_CAP], keeping its sign.
+function capQ(x) {
+  const c = Math.max(Q_FLOOR, Math.min(Q_CAP, Math.abs(x)));
+  return round(x < 0 ? -c : c);
+}
+
+// ── Global state ──────────────────────────────────────────────
+const state = {
+  tickers: ['AAPL', 'MSFT', 'GOOGL', 'NVDA'],
+  market: null,        // { dates, prices, marketCap, meta, wMkt, sigma, R, signals }
+  views: [],           // [{ id, enabled, type, picks:{T:val}, q, omega }]
+  results: null,
+  nextViewId: 1,
+};
+
+const $  = sel => document.querySelector(sel);
+const $$ = sel => [...document.querySelectorAll(sel)];
+
+// ── Navigation ────────────────────────────────────────────────
+function goto(page) {
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.page === page));
+  $$('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
+}
+$$('.tab').forEach(t => t.addEventListener('click', () => goto(t.dataset.page)));
+
+// ── Ticker chips ──────────────────────────────────────────────
+function renderChips() {
+  const wrap = $('#ticker-chips');
+  wrap.innerHTML = '';
+  state.tickers.forEach(t => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = `${t} <button title="ลบ">×</button>`;
+    chip.querySelector('button').addEventListener('click', () => {
+      state.tickers = state.tickers.filter(x => x !== t);
+      renderChips();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function addTicker(raw) {
+  const t = (raw || '').trim().toUpperCase();
+  if (!t) return;
+  if (!state.tickers.includes(t)) state.tickers.push(t);
+  renderChips();
+}
+
+$('#add-ticker').addEventListener('click', () => {
+  addTicker($('#ticker-input').value);
+  $('#ticker-input').value = '';
+});
+$('#ticker-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { addTicker(e.target.value); e.target.value = ''; }
+});
+$$('.chip-btn[data-preset]').forEach(b =>
+  b.addEventListener('click', () => { state.tickers = [...PRESETS[b.dataset.preset]]; renderChips(); }));
+
+// ── Sliders ───────────────────────────────────────────────────
+const deltaEl = $('#delta'), tauEl = $('#tau'), periodEl = $('#period');
+deltaEl.addEventListener('input', () => $('#delta-val').textContent = (+deltaEl.value).toFixed(1));
+tauEl.addEventListener('input', () => $('#tau-val').textContent = (+tauEl.value).toFixed(2));
+periodEl.addEventListener('input', () => $('#period-val').textContent = `${periodEl.value} ปี`);
+
+// ── Fetch market data ─────────────────────────────────────────
+function setStatus(msg, cls = '') { const el = $('#fetch-status'); el.textContent = msg; el.className = `status ${cls}`; }
+
+$('#fetch-data').addEventListener('click', async () => {
+  if (!state.tickers.length) { setStatus('เพิ่มหุ้นอย่างน้อย 1 ตัวก่อน', 'err'); return; }
+  const btn = $('#fetch-data');
+  btn.disabled = true;
+  setStatus('กำลังดึงข้อมูลจาก Yahoo Finance…', 'load');
+  try {
+    const period = `${periodEl.value}y`;
+    const url = `/api/data?tickers=${encodeURIComponent(state.tickers.join(','))}&period=${period}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'fetch failed');
+    buildMarket(json.data);
+    const got = Object.keys(state.market.prices).length;
+    const errs = Object.keys(json.data.errors || {});
+    setStatus(`✅ ได้ข้อมูล ${got} ตัว` + (errs.length ? ` · ข้าม: ${errs.join(', ')}` : ''), 'ok');
+    renderPreview();
+  } catch (e) {
+    setStatus(`❌ ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Process raw backend payload into aligned matrices + signals.
+function buildMarket(data) {
+  const aligned = Stats.alignPrices(data.prices);
+  const tickers = Object.keys(aligned.prices);          // only tickers with data
+  state.tickers = tickers;                              // drop failed ones
+  renderChips();
+
+  const R = Stats.returnsMatrix(aligned.prices, tickers);
+  const sigma = Stats.covariance(R);
+  const wMkt = Stats.marketWeights(data.marketCap, tickers);
+
+  state.market = {
+    tickers,
+    dates: aligned.dates,
+    prices: aligned.prices,
+    marketCap: data.marketCap,
+    meta: data.meta || {},
+    R, sigma, wMkt,
+    vol: tickers.map((_, j) => Stats.annualVol(R, j)),
+    signals: {
+      momentum: Stats.momentum(aligned.prices, tickers),
+      zscore:   Stats.zScore(aligned.prices, tickers),
+      rs:       Stats.relativeStrength(aligned.prices, tickers),
+    },
+  };
+}
+
+function renderPreview() {
+  const m = state.market;
+  const tbody = $('#preview-table tbody');
+  tbody.innerHTML = '';
+  m.tickers.forEach((t, i) => {
+    const tr = document.createElement('tr');
+    const cap = m.marketCap[t];
+    tr.innerHTML = `
+      <td><b>${t}</b></td>
+      <td class="muted" style="text-align:left">${(m.meta[t]?.name || '').slice(0, 28)}</td>
+      <td class="mono">${fmtCap(cap)}</td>
+      <td class="mono">${pct(m.wMkt[i])}</td>
+      <td class="mono">${pct(m.vol[i])}</td>
+      <td class="mono ${m.signals.momentum[i] >= 0 ? 'pos' : 'neg'}">${pct(m.signals.momentum[i])}</td>
+      <td class="pos">OK</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// VIEWS
+// ══════════════════════════════════════════════════════════════
+function blankView() {
+  const picks = {};
+  state.tickers.forEach(t => picks[t] = 0);
+  return { id: state.nextViewId++, enabled: true, type: 'absolute', picks, q: 0.05, omega: 0.0005 };
+}
+
+$('#add-view').addEventListener('click', () => {
+  if (!state.tickers.length) { alert('เพิ่มหุ้นในหน้า Setup ก่อน'); return; }
+  state.views.push(blankView());
+  renderViews();
+});
+
+function renderViews() {
+  const list = $('#views-list');
+  list.innerHTML = '';
+  if (!state.views.length) {
+    list.innerHTML = '<p class="muted" id="no-views-msg">ยังไม่มี view — กด "เพิ่ม View" หรือ "Generate Auto Views"</p>';
+    renderViewSummary();
+    return;
+  }
+  state.views.forEach((v, idx) => list.appendChild(viewCard(v, idx)));
+  renderViewSummary();
+}
+
+function viewCard(v, idx) {
+  const card = document.createElement('div');
+  card.className = 'view-card' + (v.enabled ? '' : ' disabled');
+
+  const picksHtml = state.tickers.map(t => `
+    <div class="pick-cell">
+      <span>${t}</span>
+      <input type="number" step="0.5" data-pick="${t}" value="${v.picks[t] ?? 0}" />
+    </div>`).join('');
+
+  const confOptions = Object.entries(CONFIDENCE).map(([k, val]) =>
+    `<option value="${val}" ${Math.abs(val - v.omega) < 1e-9 ? 'selected' : ''}>${k} (${val})</option>`).join('');
+
+  card.innerHTML = `
+    <div class="view-card-head">
+      <span class="vtitle">View #${idx + 1}</span>
+      <div class="vactions">
+        <label class="chk"><input type="checkbox" data-enabled ${v.enabled ? 'checked' : ''} /> เปิด</label>
+        <button class="icon-btn" data-del title="ลบ">🗑</button>
+      </div>
+    </div>
+    <div class="view-type">
+      <label><input type="radio" name="vt-${v.id}" value="absolute" ${v.type === 'absolute' ? 'checked' : ''}/> Absolute</label>
+      <label><input type="radio" name="vt-${v.id}" value="relative" ${v.type === 'relative' ? 'checked' : ''}/> Relative</label>
+    </div>
+    <div class="pick-grid">${picksHtml}</div>
+    <div class="view-row">
+      <div class="field">
+        <label>Q — Expected return (%)</label>
+        <input type="number" step="0.5" data-q value="${(v.q * 100).toFixed(2)}" />
+      </div>
+      <div class="field">
+        <label>Ω — Confidence</label>
+        <select data-omega>${confOptions}</select>
+      </div>
+    </div>`;
+
+  // wiring
+  card.querySelector('[data-enabled]').addEventListener('change', e => { v.enabled = e.target.checked; renderViews(); });
+  card.querySelector('[data-del]').addEventListener('click', () => { state.views = state.views.filter(x => x.id !== v.id); renderViews(); });
+  card.querySelectorAll(`input[name="vt-${v.id}"]`).forEach(r =>
+    r.addEventListener('change', e => { v.type = e.target.value; }));
+  card.querySelectorAll('[data-pick]').forEach(inp =>
+    inp.addEventListener('input', e => { v.picks[e.target.dataset.pick] = parseFloat(e.target.value) || 0; renderViewSummary(); }));
+  card.querySelector('[data-q]').addEventListener('input', e => { v.q = (parseFloat(e.target.value) || 0) / 100; renderViewSummary(); });
+  card.querySelector('[data-omega]').addEventListener('change', e => { v.omega = parseFloat(e.target.value); renderViewSummary(); });
+
+  return card;
+}
+
+function renderViewSummary() {
+  const tbody = $('#view-summary tbody');
+  const active = state.views.filter(v => v.enabled);
+  if (!active.length) { tbody.innerHTML = '<tr><td colspan="6" class="muted">ยังไม่มี view</td></tr>'; return; }
+  tbody.innerHTML = '';
+  active.forEach((v, i) => {
+    const picks = Object.entries(v.picks).filter(([, x]) => x !== 0);
+    const up = picks.filter(([, x]) => x > 0).map(([t]) => t).join(', ') || '—';
+    const down = picks.filter(([, x]) => x < 0).map(([t]) => t).join(', ') || '—';
+    const confName = Object.entries(CONFIDENCE).find(([, val]) => Math.abs(val - v.omega) < 1e-9)?.[0] || 'custom';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td style="text-align:left">${v.type === 'absolute' ? 'Absolute' : 'Relative'}</td>
+      <td style="text-align:left">${picks.map(([t, x]) => `${t}:${x > 0 ? '+' : ''}${x}`).join('  ')}</td>
+      <td class="mono">${pct(v.q)}</td>
+      <td>${confName}</td>
+      <td style="text-align:left"><span class="pos">▲ ${up}</span> &nbsp; <span class="neg">▼ ${down}</span></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Auto signal generator ─────────────────────────────────────
+$('#gen-auto').addEventListener('click', () => {
+  if (!state.market) { alert('ดึงข้อมูลตลาดในหน้า Setup ก่อน'); return; }
+  const m = state.market, T = m.tickers;
+  const generated = [];
+
+  // Momentum → absolute views: tilt prior return by momentum strength.
+  if ($('#sig-mom').checked) {
+    T.forEach((t, i) => {
+      const sig = m.signals.momentum[i];
+      if (Math.abs(sig) < 0.02) return;               // ignore weak signals
+      const picks = {}; T.forEach(x => picks[x] = 0); picks[t] = 1;
+      // anchor on the implied prior, nudged by the momentum signal
+      const pi = BL.impliedReturns(+deltaEl.value, m.sigma, m.wMkt)[i];
+      generated.push({ id: state.nextViewId++, enabled: true, type: 'absolute',
+        picks, q: capQ(pi + 0.5 * sig), omega: confFromStrength(Math.abs(sig)) });
+    });
+  }
+
+  // Relative strength → one relative view: best vs worst.
+  if ($('#sig-rs').checked && T.length >= 2) {
+    const rs = m.signals.rs;
+    const best = rs.indexOf(Math.max(...rs));
+    const worst = rs.indexOf(Math.min(...rs));
+    if (best !== worst) {
+      const picks = {}; T.forEach(x => picks[x] = 0);
+      picks[T[best]] = 1; picks[T[worst]] = -1;
+      generated.push({ id: state.nextViewId++, enabled: true, type: 'relative',
+        picks, q: capQ(rs[best] - rs[worst]), omega: 0.0010 });
+    }
+  }
+
+  // Mean reversion → relative view: most oversold vs most overbought.
+  if ($('#sig-rev').checked && T.length >= 2) {
+    const z = m.signals.zscore;
+    const cheap = z.indexOf(Math.min(...z));    // low z = below mean = upside
+    const rich = z.indexOf(Math.max(...z));
+    if (cheap !== rich && (z[rich] - z[cheap]) > 0.5) {
+      const picks = {}; T.forEach(x => picks[x] = 0);
+      picks[T[cheap]] = 1; picks[T[rich]] = -1;
+      generated.push({ id: state.nextViewId++, enabled: true, type: 'relative',
+        picks, q: capQ(0.01 * (z[rich] - z[cheap])), omega: 0.0020 });
+    }
+  }
+
+  if (!generated.length) { alert('signal อ่อนเกินไป — ไม่มี view ที่สร้างได้'); return; }
+  state.views.push(...generated);
+  renderViews();
+});
+
+function confFromStrength(s) {
+  if (s > 0.25) return 0.0005;
+  if (s > 0.12) return 0.0010;
+  return 0.0020;
+}
+
+// ══════════════════════════════════════════════════════════════
+// RUN BLACK-LITTERMAN
+// ══════════════════════════════════════════════════════════════
+$('#run-bl').addEventListener('click', () => {
+  if (!state.market) { alert('ดึงข้อมูลตลาดในหน้า Setup ก่อน'); goto('setup'); return; }
+  const m = state.market, T = m.tickers;
+  const delta = +deltaEl.value, tau = +tauEl.value;
+
+  // Validate views before sending them to the engine: drop any with an
+  // all-zero pick vector or a ~zero Q — they add no information. (#7)
+  const active = state.views.filter(v =>
+    v.enabled &&
+    Object.values(v.picks).some(x => x !== 0) &&
+    Math.abs(v.q) > 0.001);
+
+  const skipped = state.views.filter(v => v.enabled).length - active.length;
+
+  let P = null, Q = null, omega = null;
+  if (active.length) {
+    P = active.map(v => T.map(t => v.picks[t] || 0));
+    Q = active.map(v => v.q);
+    omega = active.map(v => v.omega);
+  }
+
+  let out;
+  try {
+    out = BL.compute({ delta, tau, sigma: m.sigma, wMkt: m.wMkt, P, Q, omega });
+  } catch (e) {
+    alert('คำนวณไม่สำเร็จ: ' + e.message + '\n(อาจเป็นเพราะ covariance matrix singular)');
+    return;
+  }
+
+  // Unconstrained weights → tradeable weights via long-only + min/max. (#1, #2)
+  const wRaw = BL.optimalWeights(delta, out.sigmaBL, out.muBL);
+  const wStar = BL.constrainWeights(wRaw, { longOnly: true, minW: MIN_WEIGHT, maxW: MAX_WEIGHT });
+
+  state.results = {
+    tickers: T,
+    wMkt: m.wMkt, wStar, wRaw,
+    pi: out.pi, muBL: out.muBL,
+    sigma: m.sigma, sigmaBL: out.sigmaBL,
+    skipped,
+    metrics: {
+      expReturn: BL.portfolioReturn(wStar, out.muBL),
+      vol: BL.portfolioVol(wStar, m.sigma),
+      sharpe: BL.sharpe(wStar, out.muBL, m.sigma, RISK_FREE),   // (#5)
+      te: BL.trackingError(wStar, m.wMkt, m.sigma),
+      leverage: BL.leverage(wRaw),                              // (#9)
+    },
+  };
+  renderResults();
+  goto('results');
+});
+
+function renderResults() {
+  const r = state.results;
+  $('#results-empty').style.display = 'none';
+  $('#results-body').style.display = 'block';
+
+  // metrics — colour-coded by threshold (#6 TE, #8 return)
+  const { expReturn: er, vol, sharpe: sh, te, leverage: lev } = r.metrics;
+  const teCls = te > 0.10 ? 'neg' : te > 0.05 ? 'warn' : 'pos';
+  const teTag = te > 0.10 ? ' ⚠' : te > 0.05 ? ' •' : ' ✓';
+  const erCls = er > 0.30 ? 'neg' : '';
+  $('#metrics-row').innerHTML = [
+    ['Expected Return', pct(er), erCls],
+    ['Volatility', pct(vol), ''],
+    [`Sharpe Ratio <span class="m-sub">rf ${pct(RISK_FREE)}</span>`, sh.toFixed(2), ''],
+    [`Tracking Error<span class="m-sub">vs market${teTag}</span>`, pct(te), teCls],
+  ].map(([l, v, c]) => `<div class="metric"><div class="m-label">${l}</div><div class="m-value ${c}">${v}</div></div>`).join('');
+
+  // warning banners (#6, #8, #9, #7)
+  const warns = [];
+  if (te > 0.10) warns.push(`⚠ Tracking Error ${pct(te)} สูงเกินมาตรฐาน Active Fund (ปกติ 2–8%)`);
+  else if (te > 0.05) warns.push(`ระวัง: Tracking Error ${pct(te)} ค่อนข้างสูง`);
+  if (er > 0.30) warns.push(`⚠ Expected Return ${pct(er)} สูงผิดปกติ — ตรวจสอบ Views`);
+  if (lev > 1.2) warns.push(`⚠ Leverage ${lev.toFixed(2)}× — ก่อน constraint โมเดลต้องการ short positions มาก (ถูก long-only ปรับแล้ว)`);
+  if (r.skipped > 0) warns.push(`ℹ ข้าม ${r.skipped} view ที่ไม่มีน้ำหนัก (pick = 0 หรือ Q ≈ 0)`);
+  $('#results-warnings').innerHTML = warns.map(w =>
+    `<div class="warn-banner${w.startsWith('⚠') ? ' crit' : ''}">${w}</div>`).join('');
+
+  // weight table
+  const wtb = $('#weight-table tbody'); wtb.innerHTML = '';
+  r.tickers.forEach((t, i) => {
+    const d = r.wStar[i] - r.wMkt[i];
+    wtb.innerHTML += `<tr><td><b>${t}</b></td><td class="mono">${pct(r.wMkt[i])}</td>
+      <td class="mono">${pct(r.wStar[i])}</td><td class="mono ${cls(d)}">${signed(d)} ${arrow(d)}</td></tr>`;
+  });
+  renderWeightChart(r);
+
+  // return table
+  const rtb = $('#return-table tbody'); rtb.innerHTML = '';
+  r.tickers.forEach((t, i) => {
+    const d = r.muBL[i] - r.pi[i];
+    rtb.innerHTML += `<tr><td><b>${t}</b></td><td class="mono">${pct(r.pi[i])}</td>
+      <td class="mono">${pct(r.muBL[i])}</td><td class="mono ${cls(d)}">${signed(d)}</td></tr>`;
+  });
+
+  renderFrontier(r);
+}
+
+function renderWeightChart(r) {
+  const maxW = Math.max(...r.wMkt, ...r.wStar, 0.01);
+  const rows = r.tickers.map((t, i) => `
+    <div class="bar-row">
+      <span>${t}</span>
+      <div class="bar-track">
+        <div class="bar-seg bar-mkt" style="width:${(r.wMkt[i] / maxW * 100).toFixed(1)}%"></div>
+        <div class="bar-seg bar-bl"  style="width:${(Math.max(r.wStar[i], 0) / maxW * 100).toFixed(1)}%; opacity:.85"></div>
+      </div>
+    </div>`).join('');
+  $('#weight-chart').innerHTML = rows +
+    `<div class="bar-legend"><span><i class="dot dot-mkt"></i>w_mkt</span><span><i class="dot dot-bl"></i>w* (BL)</span></div>`;
+}
+
+// ── Efficient frontier (canvas scatter) ──────────────────────
+function renderFrontier(r) {
+  const canvas = $('#frontier-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const pad = { l: 60, r: 20, t: 20, b: 45 };
+  ctx.clearRect(0, 0, W, H);
+
+  const cloud = BL.randomPortfolios(r.muBL, r.sigmaBL, RISK_FREE, 1800);
+  const blPt = { vol: BL.portfolioVol(r.wStar, r.sigmaBL), ret: BL.portfolioReturn(r.wStar, r.muBL) };
+  const mkPt = { vol: BL.portfolioVol(r.wMkt, r.sigmaBL), ret: BL.portfolioReturn(r.wMkt, r.muBL) };
+  const maxSharpe = cloud.reduce((a, b) => b.sharpe > a.sharpe ? b : a, cloud[0]);
+
+  const all = [...cloud, blPt, mkPt];
+  const xs = all.map(p => p.vol), ys = all.map(p => p.ret);
+  const xMin = Math.min(...xs) * 0.95, xMax = Math.max(...xs) * 1.05;
+  const yMin = Math.min(...ys, 0) * 1.05, yMax = Math.max(...ys) * 1.1;
+
+  const sx = v => pad.l + (v - xMin) / (xMax - xMin) * (W - pad.l - pad.r);
+  const sy = v => H - pad.b - (v - yMin) / (yMax - yMin) * (H - pad.t - pad.b);
+
+  // axes + grid
+  ctx.strokeStyle = '#2a3340'; ctx.fillStyle = '#8b97a7'; ctx.font = '11px sans-serif';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const gy = pad.t + i / 5 * (H - pad.t - pad.b);
+    ctx.beginPath(); ctx.moveTo(pad.l, gy); ctx.lineTo(W - pad.r, gy); ctx.stroke();
+    const val = yMax - i / 5 * (yMax - yMin);
+    ctx.fillText((val * 100).toFixed(0) + '%', 8, gy + 4);
+  }
+  for (let i = 0; i <= 5; i++) {
+    const gx = pad.l + i / 5 * (W - pad.l - pad.r);
+    const val = xMin + i / 5 * (xMax - xMin);
+    ctx.fillText((val * 100).toFixed(0) + '%', gx - 8, H - pad.b + 18);
+  }
+  ctx.fillText('Volatility →', W / 2 - 30, H - 8);
+  ctx.save(); ctx.translate(16, H / 2 + 30); ctx.rotate(-Math.PI / 2); ctx.fillText('Expected Return →', 0, 0); ctx.restore();
+
+  // cloud
+  cloud.forEach(p => {
+    ctx.fillStyle = `rgba(79,156,255,${0.1 + p.sharpe * 0.12})`;
+    ctx.beginPath(); ctx.arc(sx(p.vol), sy(p.ret), 2.4, 0, 2 * Math.PI); ctx.fill();
+  });
+
+  const mark = (p, color, label, rad = 7) => {
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(sx(p.vol), sy(p.ret), rad, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = '#0e1117'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(label, sx(p.vol) + 10, sy(p.ret) + 4);
+  };
+  mark(maxSharpe, '#2ecc71', 'Max Sharpe');
+  mark(mkPt, '#f5c451', 'Market');
+  mark(blPt, '#4f9cff', 'BL Optimal');
+}
+
+// ── Export ────────────────────────────────────────────────────
+$('#export-csv').addEventListener('click', () => {
+  const r = state.results; if (!r) return;
+  let csv = 'Ticker,w_mkt,w_BL,delta_weight,Pi_prior,mu_BL\n';
+  r.tickers.forEach((t, i) => {
+    csv += `${t},${r.wMkt[i].toFixed(4)},${r.wStar[i].toFixed(4)},${(r.wStar[i] - r.wMkt[i]).toFixed(4)},${r.pi[i].toFixed(4)},${r.muBL[i].toFixed(4)}\n`;
+  });
+  csv += `\nExpected Return,${r.metrics.expReturn.toFixed(4)}\nVolatility,${r.metrics.vol.toFixed(4)}\nSharpe,${r.metrics.sharpe.toFixed(4)}\nTracking Error,${r.metrics.te.toFixed(4)}\n`;
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'bl_weights.csv'; a.click();
+});
+
+$('#copy-summary').addEventListener('click', () => {
+  const r = state.results; if (!r) return;
+  let txt = 'BLACK-LITTERMAN OPTIMAL PORTFOLIO\n' + '='.repeat(40) + '\n';
+  r.tickers.forEach((t, i) =>
+    txt += `${t.padEnd(10)} ${pct(r.wMkt[i]).padStart(8)} → ${pct(r.wStar[i]).padStart(8)}  (${signed(r.wStar[i] - r.wMkt[i])})\n`);
+  txt += '-'.repeat(40) + `\nExp Return: ${pct(r.metrics.expReturn)}  Vol: ${pct(r.metrics.vol)}  Sharpe: ${r.metrics.sharpe.toFixed(2)}\n`;
+  navigator.clipboard.writeText(txt).then(() => {
+    const b = $('#copy-summary'); const old = b.textContent; b.textContent = '✅ Copied!';
+    setTimeout(() => b.textContent = old, 1500);
+  });
+});
+
+// ── Formatting helpers ────────────────────────────────────────
+function pct(x) { return (x * 100).toFixed(2) + '%'; }
+function signed(x) { return (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%'; }
+function arrow(x) { return x > 0.0001 ? '↑' : x < -0.0001 ? '↓' : ''; }
+function cls(x) { return x > 0 ? 'pos' : x < 0 ? 'neg' : ''; }
+function round(x) { return Math.round(x * 10000) / 10000; }
+function fmtCap(c) {
+  if (!c) return '—';
+  if (c >= 1e12) return (c / 1e12).toFixed(2) + 'T';
+  if (c >= 1e9)  return (c / 1e9).toFixed(1) + 'B';
+  if (c >= 1e6)  return (c / 1e6).toFixed(0) + 'M';
+  return String(c);
+}
+
+// ── Reset to Market Portfolio (#10) ───────────────────────────
+// Clears every view and recomputes — with no views w* collapses to w_mkt,
+// a quick sanity check that the engine is behaving.
+$('#reset-market').addEventListener('click', () => {
+  if (!state.market) { alert('ดึงข้อมูลตลาดในหน้า Setup ก่อน'); goto('setup'); return; }
+  state.views = [];
+  renderViews();
+  $('#run-bl').click();
+});
+
+// ── Init ──────────────────────────────────────────────────────
+renderChips();
