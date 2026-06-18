@@ -181,7 +181,11 @@ def screen_ticker(ticker: str, info: dict = None) -> dict:
     else:
         c5 = fwd_eps > trail_eps
 
-    checks = [c1, c2, c3, c4, c5]
+    # Normalize to Python bool/None: pandas comparisons (e.g. Check 2) yield
+    # numpy.bool_, and `np.True_ is True` is False — an identity check would
+    # silently drop those passes from the score.
+    checks = [None if c is None else bool(c) for c in (c1, c2, c3, c4, c5)]
+    c1, c2, c3, c4, c5 = checks
     score = sum(1 for c in checks if c is True)
 
     return {
