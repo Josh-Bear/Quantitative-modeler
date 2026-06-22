@@ -54,13 +54,14 @@ const BL = (() => {
     return { pi, muBL, sigmaBL, M };
   }
 
-  // w* = (δ Σ_BL)⁻¹ μ_BL, normalised to sum to 1.
+  // w* = (δ Σ_BL)⁻¹ μ_BL — raw, un-normalised.
   // These are the UNCONSTRAINED weights (may be negative / concentrated);
   // pass them through constrainWeights() for a tradeable portfolio.
+  // Note: intentionally not normalised here — dividing by a near-zero or
+  // negative sum can flip signs and amplify extreme values. constrainWeights()
+  // handles normalisation safely after the long-only clamp. (BugFix #2)
   function optimalWeights(delta, sigmaBL, muBL) {
-    const raw = matVec(inverse(scale(sigmaBL, delta)), muBL);
-    const total = raw.reduce((s, x) => s + x, 0);
-    return total !== 0 ? raw.map(x => x / total) : raw;
+    return matVec(inverse(scale(sigmaBL, delta)), muBL);
   }
 
   // Apply long-only + per-stock min/max constraints, renormalising to sum 1.

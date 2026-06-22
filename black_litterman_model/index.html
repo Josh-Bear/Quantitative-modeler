@@ -29,18 +29,24 @@
       <div class="grid-2">
         <div class="card">
           <h2>Stock Selector</h2>
-          <div class="ticker-input-row">
-            <input id="ticker-input" type="text" placeholder="พิมพ์ ticker เช่น AAPL แล้ว Enter" />
-            <button id="add-ticker" class="btn">+ เพิ่ม</button>
+          <div class="autocomplete-wrap">
+            <div class="ticker-input-row">
+              <input id="ticker-input" type="text" placeholder="พิมพ์ ticker เช่น AAPL แล้ว Enter" autocomplete="off" />
+              <button id="add-ticker" class="btn">+ เพิ่ม</button>
+            </div>
+            <ul id="ticker-suggest" class="suggest-list" hidden></ul>
           </div>
           <div id="ticker-chips" class="chips"></div>
-          <div class="presets">
-            <span class="preset-label">Preset:</span>
-            <button class="chip-btn" data-preset="tech">Tech</button>
-            <button class="chip-btn" data-preset="finance">Finance</button>
-            <button class="chip-btn" data-preset="energy">Energy</button>
-            <button class="chip-btn" data-preset="mixed">Mixed</button>
-            <button class="chip-btn" data-preset="thai">Thai (SET)</button>
+
+          <!-- ── Ports (editable portfolios) ── -->
+          <div class="ports-section">
+            <div class="ports-header">
+              <span class="preset-label">Ports</span>
+              <div class="ports-actions">
+                <button id="save-as-port" class="btn btn-sm" title="บันทึก tickers ปัจจุบันเป็น port ใหม่">💾 Save as Port</button>
+              </div>
+            </div>
+            <div id="port-chips-row" class="port-chips-row"></div>
           </div>
         </div>
 
@@ -169,6 +175,9 @@
       </div>
     </section>
   </main>
+
+
+
 
   <script src="engine/matrix.js"></script>
   <script src="engine/stats.js"></script>

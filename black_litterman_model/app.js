@@ -2,13 +2,77 @@
 // app.js — UI state, page navigation and wiring for the BL optimizer
 // ══════════════════════════════════════════════════════════════
 
-const PRESETS = {
-  tech:    ['AAPL', 'MSFT', 'GOOGL', 'NVDA'],
-  finance: ['JPM', 'BAC', 'GS', 'MS'],
-  energy:  ['XOM', 'CVX', 'COP', 'SLB'],
-  mixed:   ['AAPL', 'JPM', 'XOM', 'JNJ'],
-  thai:    ['PTT.BK', 'AOT.BK', 'KBANK.BK', 'CPF.BK'],
-};
+// ══════════════════════════════════════════════════════════════
+// TICKER AUTOCOMPLETE DATABASE
+// ══════════════════════════════════════════════════════════════
+const TICKER_DB = [
+  // US Mega-cap
+  ['AAPL','Apple'],['MSFT','Microsoft'],['GOOGL','Alphabet'],['AMZN','Amazon'],
+  ['NVDA','NVIDIA'],['META','Meta'],['TSLA','Tesla'],['BRK-B','Berkshire Hathaway'],
+  ['LLY','Eli Lilly'],['V','Visa'],['JPM','JPMorgan'],['UNH','UnitedHealth'],
+  ['XOM','ExxonMobil'],['JNJ','Johnson & Johnson'],['WMT','Walmart'],
+  ['MA','Mastercard'],['PG','Procter & Gamble'],['HD','Home Depot'],
+  ['CVX','Chevron'],['MRK','Merck'],['ABBV','AbbVie'],['PEP','PepsiCo'],
+  ['KO','Coca-Cola'],['COST','Costco'],['BAC','Bank of America'],['AVGO','Broadcom'],
+  ['NFLX','Netflix'],['CRM','Salesforce'],['AMD','Advanced Micro Devices'],
+  ['ADBE','Adobe'],['QCOM','Qualcomm'],['ORCL','Oracle'],['TXN','Texas Instruments'],
+  ['INTU','Intuit'],['AMGN','Amgen'],['HON','Honeywell'],['IBM','IBM'],
+  ['GE','GE Aerospace'],['CAT','Caterpillar'],['GS','Goldman Sachs'],
+  ['MS','Morgan Stanley'],['BLK','BlackRock'],['SCHW','Schwab'],['C','Citigroup'],
+  ['WFC','Wells Fargo'],['AXP','American Express'],['SPGI','S&P Global'],
+  ['RTX','RTX Corp'],['BA','Boeing'],['LMT','Lockheed Martin'],['UNP','Union Pacific'],
+  ['DE','Deere'],['MMM','3M'],['NEE','NextEra Energy'],['DUK','Duke Energy'],
+  ['SO','Southern Company'],['SLB','SLB (Schlumberger)'],['COP','ConocoPhillips'],
+  ['OXY','Occidental Petroleum'],['MPC','Marathon Petroleum'],['VLO','Valero Energy'],
+  ['PFE','Pfizer'],['BMY','Bristol-Myers'],['GILD','Gilead Sciences'],
+  ['ISRG','Intuitive Surgical'],['MDT','Medtronic'],['ABT','Abbott'],
+  ['DHR','Danaher'],['SYK','Stryker'],['BSX','Boston Scientific'],
+  ['DIS','Disney'],['CMCSA','Comcast'],['T','AT&T'],['VZ','Verizon'],
+  ['TMUS','T-Mobile'],['CHTR','Charter Communications'],
+  ['UBER','Uber'],['LYFT','Lyft'],['ABNB','Airbnb'],['SNAP','Snap'],
+  ['PINS','Pinterest'],['SPOT','Spotify'],['SQ','Block'],['PYPL','PayPal'],
+  ['COIN','Coinbase'],['HOOD','Robinhood'],
+  ['SPY','S&P500 ETF'],['QQQ','Nasdaq-100 ETF'],['DIA','Dow ETF'],
+  ['IWM','Russell 2000 ETF'],['GLD','Gold ETF'],['SLV','Silver ETF'],
+  ['TLT','20yr Treasury ETF'],['HYG','High Yield Bond ETF'],
+  // Thai (SET)
+  ['PTT.BK','PTT'],['AOT.BK','Airports of Thailand'],['KBANK.BK','Kasikorn Bank'],
+  ['CPF.BK','Charoen Pokphand Foods'],['SCB.BK','SCB'],['CPALL.BK','CP All'],
+  ['BBL.BK','Bangkok Bank'],['KTB.BK','Krungthai Bank'],['TRUE.BK','True Corp'],
+  ['GULF.BK','Gulf Energy'],['ADVANC.BK','Advanced Info Service'],
+  ['INTUCH.BK','Intouch Holdings'],['DELTA.BK','Delta Electronics TH'],
+  ['IVL.BK','Indorama Ventures'],['SCC.BK','Siam Cement'],['BH.BK','Bumrungrad'],
+  ['MINT.BK','Minor International'],['TU.BK','Thai Union'],['BJC.BK','BJC'],
+  // HK / China
+  ['700.HK','Tencent'],['9988.HK','Alibaba HK'],['3690.HK','Meituan'],
+  ['0941.HK','China Mobile'],['BABA','Alibaba US'],['JD','JD.com'],['PDD','PDD Holdings'],
+  ['BIDU','Baidu'],['NIO','NIO'],['LI','Li Auto'],['XPEV','Xpeng'],
+];
+
+// ══════════════════════════════════════════════════════════════
+// PORTS — user-editable saved portfolios (localStorage)
+// ══════════════════════════════════════════════════════════════
+const DEFAULT_PORTS = [
+  { id: 'tech',    name: 'Tech',       tickers: ['AAPL','MSFT','GOOGL','NVDA'] },
+  { id: 'finance', name: 'Finance',    tickers: ['JPM','BAC','GS','MS'] },
+  { id: 'energy',  name: 'Energy',     tickers: ['XOM','CVX','COP','SLB'] },
+  { id: 'mixed',   name: 'Mixed',      tickers: ['AAPL','JPM','XOM','JNJ'] },
+  { id: 'thai',    name: 'Thai (SET)', tickers: ['PTT.BK','AOT.BK','KBANK.BK','CPF.BK'] },
+];
+
+function loadPorts() {
+  try {
+    const raw = localStorage.getItem('bl_ports');
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return DEFAULT_PORTS.map(p => ({ ...p }));
+}
+
+function savePorts(ports) {
+  localStorage.setItem('bl_ports', JSON.stringify(ports));
+}
+
+let ports = loadPorts();
 
 const CONFIDENCE = {
   'สูงมาก':   0.0002,
@@ -50,14 +114,17 @@ function goto(page) {
 }
 $$('.tab').forEach(t => t.addEventListener('click', () => goto(t.dataset.page)));
 
-// ── Ticker chips ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// TICKER CHIPS
+// ══════════════════════════════════════════════════════════════
 function renderChips() {
   const wrap = $('#ticker-chips');
   wrap.innerHTML = '';
   state.tickers.forEach(t => {
+    const name = TICKER_DB.find(([sym]) => sym === t)?.[1] || '';
     const chip = document.createElement('span');
     chip.className = 'chip';
-    chip.innerHTML = `${t} <button title="ลบ">×</button>`;
+    chip.innerHTML = `<b>${t}</b>${name ? `<span class="chip-name">${name}</span>` : ''} <button title="ลบ">×</button>`;
     chip.querySelector('button').addEventListener('click', () => {
       state.tickers = state.tickers.filter(x => x !== t);
       renderChips();
@@ -73,15 +140,128 @@ function addTicker(raw) {
   renderChips();
 }
 
+// ══════════════════════════════════════════════════════════════
+// AUTOCOMPLETE
+// ══════════════════════════════════════════════════════════════
+const tickerInput = $('#ticker-input');
+const suggestList = $('#ticker-suggest');
+let acIndex = -1;   // keyboard-nav index
+
+function filterSuggestions(q) {
+  if (!q) return [];
+  const upper = q.toUpperCase();
+  return TICKER_DB.filter(([sym, name]) =>
+    sym.startsWith(upper) || name.toUpperCase().includes(upper)
+  ).slice(0, 8);
+}
+
+function renderSuggestions(matches) {
+  suggestList.innerHTML = '';
+  acIndex = -1;
+  if (!matches.length) { suggestList.hidden = true; return; }
+  matches.forEach(([sym, name]) => {
+    const li = document.createElement('li');
+    li.className = 'suggest-item';
+    li.innerHTML = `<b>${sym}</b><span>${name}</span>`;
+    li.addEventListener('mousedown', e => {
+      e.preventDefault();
+      selectSuggestion(sym);
+    });
+    suggestList.appendChild(li);
+  });
+  suggestList.hidden = false;
+}
+
+function selectSuggestion(sym) {
+  addTicker(sym);
+  tickerInput.value = '';
+  suggestList.hidden = true;
+  acIndex = -1;
+}
+
+function highlightItem(idx) {
+  const items = suggestList.querySelectorAll('.suggest-item');
+  items.forEach((li, i) => li.classList.toggle('active', i === idx));
+}
+
+tickerInput.addEventListener('input', () => {
+  renderSuggestions(filterSuggestions(tickerInput.value));
+});
+
+tickerInput.addEventListener('keydown', e => {
+  const items = suggestList.querySelectorAll('.suggest-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acIndex = Math.min(acIndex + 1, items.length - 1);
+    highlightItem(acIndex);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acIndex = Math.max(acIndex - 1, -1);
+    highlightItem(acIndex);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (acIndex >= 0 && items[acIndex]) {
+      const sym = items[acIndex].querySelector('b').textContent;
+      selectSuggestion(sym);
+    } else {
+      addTicker(tickerInput.value);
+      tickerInput.value = '';
+      suggestList.hidden = true;
+    }
+  } else if (e.key === 'Escape') {
+    suggestList.hidden = true;
+  }
+});
+
+tickerInput.addEventListener('blur', () => {
+  setTimeout(() => { suggestList.hidden = true; }, 120);
+});
+
 $('#add-ticker').addEventListener('click', () => {
-  addTicker($('#ticker-input').value);
-  $('#ticker-input').value = '';
+  addTicker(tickerInput.value);
+  tickerInput.value = '';
+  suggestList.hidden = true;
 });
-$('#ticker-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { addTicker(e.target.value); e.target.value = ''; }
+
+// ══════════════════════════════════════════════════════════════
+// PORTS — port-chip row + modals
+// ══════════════════════════════════════════════════════════════
+function renderPortChips() {
+  const row = $('#port-chips-row');
+  row.innerHTML = '';
+  ports.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'chip-btn port-chip';
+    btn.title = p.tickers.join(', ');
+    btn.innerHTML = `<span class="port-chip-name">${p.name}</span><span class="port-chip-count">${p.tickers.length}</span>`;
+    btn.addEventListener('click', () => {
+      state.tickers = [...p.tickers];
+      renderChips();
+      // flash
+      btn.classList.add('port-chip-active');
+      setTimeout(() => btn.classList.remove('port-chip-active'), 600);
+    });
+    row.appendChild(btn);
+  });
+}
+
+// ── Save as Port ──────────────────────────────────────────────
+$('#save-as-port').addEventListener('click', () => {
+  if (!state.tickers.length) { alert('เพิ่มหุ้นก่อนบันทึก'); return; }
+  const name = prompt(`บันทึก Port ใหม่\n\nหุ้น: ${state.tickers.join(' · ')}\n\nใส่ชื่อ Port:`);
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+  const existing = ports.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
+  if (existing) {
+    if (!confirm(`Port "${trimmed}" มีอยู่แล้ว — อัปเดต tickers?`)) return;
+    existing.tickers = [...state.tickers];
+  } else {
+    ports.push({ id: `port_${Date.now()}`, name: trimmed, tickers: [...state.tickers] });
+  }
+  savePorts(ports);
+  renderPortChips();
 });
-$$('.chip-btn[data-preset]').forEach(b =>
-  b.addEventListener('click', () => { state.tickers = [...PRESETS[b.dataset.preset]]; renderChips(); }));
+
 
 // ── Sliders ───────────────────────────────────────────────────
 const deltaEl = $('#delta'), tauEl = $('#tau'), periodEl = $('#period');
@@ -439,9 +619,10 @@ function renderFrontier(r) {
   const pad = { l: 60, r: 20, t: 20, b: 45 };
   ctx.clearRect(0, 0, W, H);
 
-  const cloud = BL.randomPortfolios(r.muBL, r.sigmaBL, RISK_FREE, 1800);
-  const blPt = { vol: BL.portfolioVol(r.wStar, r.sigmaBL), ret: BL.portfolioReturn(r.wStar, r.muBL) };
-  const mkPt = { vol: BL.portfolioVol(r.wMkt, r.sigmaBL), ret: BL.portfolioReturn(r.wMkt, r.muBL) };
+  // Use historical sigma (same as metrics card) so chart vol matches displayed numbers.
+  const cloud = BL.randomPortfolios(r.muBL, r.sigma, RISK_FREE, 1800);
+  const blPt = { vol: BL.portfolioVol(r.wStar, r.sigma), ret: BL.portfolioReturn(r.wStar, r.muBL) };
+  const mkPt = { vol: BL.portfolioVol(r.wMkt, r.sigma), ret: BL.portfolioReturn(r.wMkt, r.muBL) };
   const maxSharpe = cloud.reduce((a, b) => b.sharpe > a.sharpe ? b : a, cloud[0]);
 
   const all = [...cloud, blPt, mkPt];
@@ -538,3 +719,4 @@ $('#reset-market').addEventListener('click', () => {
 
 // ── Init ──────────────────────────────────────────────────────
 renderChips();
+renderPortChips();

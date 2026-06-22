@@ -97,14 +97,17 @@ const Stats = (() => {
     });
   }
 
-  // Mean-reversion z-score: how far latest price sits from its mean,
-  // in standard deviations (negative → cheap → upside).
+  // Mean-reversion z-score: how far the latest monthly return sits from its
+  // historical mean, in standard deviations (negative → recent underperformance
+  // → mean-reversion upside). Uses returns (stationary) instead of price
+  // levels (non-stationary) to avoid trending assets always showing high z.
   function zScore(prices, tickers) {
     return tickers.map(t => {
-      const s = prices[t];
-      const m = mean(s);
-      const sd = Math.sqrt(s.reduce((a, x) => a + (x - m) ** 2, 0) / s.length) || 1;
-      return (s[s.length - 1] - m) / sd;
+      const rets = returns(prices[t]);   // monthly log-style simple returns
+      if (!rets.length) return 0;
+      const m = mean(rets);
+      const sd = Math.sqrt(rets.reduce((a, x) => a + (x - m) ** 2, 0) / rets.length) || 1;
+      return (rets[rets.length - 1] - m) / sd;  // last month vs historical mean
     });
   }
 

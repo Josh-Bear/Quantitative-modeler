@@ -94,6 +94,14 @@ class BLHandler(http.server.SimpleHTTPRequestHandler):
         if "/api/" in str(path):
             print(f"  🔍 {fmt % args}")
 
+    def end_headers(self):
+        # Disable caching for JS/CSS so the browser always loads the latest file.
+        if self.path.endswith(('.js', '.css')):
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+        super().end_headers()
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/data":
@@ -151,8 +159,18 @@ if __name__ == "__main__":
         print("    Run: pip3 install yfinance\n")
         sys.exit(1)
 
-    with socketserver.TCPServer(("", PORT), BLHandler) as httpd:
-        httpd.allow_reuse_address = True
+    class ReusableTCPServer(socketserver.TCPServer):
+        allow_reuse_address = True
+        def server_bind(self):
+            import socket
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except AttributeError:
+                pass  # SO_REUSEPORT not available on all platforms
+            super().server_bind()
+
+    with ReusableTCPServer(("", PORT), BLHandler) as httpd:
         print(f'\n{"="*55}')
         print("  🚀  Black-Litterman Optimizer running")
         print(f"  🌐  http://localhost:{PORT}/")
