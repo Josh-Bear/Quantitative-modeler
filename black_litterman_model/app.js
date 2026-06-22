@@ -50,29 +50,27 @@ const TICKER_DB = [
 ];
 
 // ══════════════════════════════════════════════════════════════
-// PORTS — user-editable saved portfolios (localStorage)
+// BACKEND API BASE — all /api/* calls go to FastAPI on :8000
 // ══════════════════════════════════════════════════════════════
-const DEFAULT_PORTS = [
-  { id: 'tech',    name: 'Tech',       tickers: ['AAPL','MSFT','GOOGL','NVDA'] },
-  { id: 'finance', name: 'Finance',    tickers: ['JPM','BAC','GS','MS'] },
-  { id: 'energy',  name: 'Energy',     tickers: ['XOM','CVX','COP','SLB'] },
-  { id: 'mixed',   name: 'Mixed',      tickers: ['AAPL','JPM','XOM','JNJ'] },
-  { id: 'thai',    name: 'Thai (SET)', tickers: ['PTT.BK','AOT.BK','KBANK.BK','CPF.BK'] },
-];
+const API_BASE = 'http://localhost:8000';
 
-function loadPorts() {
+// ══════════════════════════════════════════════════════════════
+// PORTS — stored in MongoDB via backend API
+// ══════════════════════════════════════════════════════════════
+let ports = [];  // populated async by fetchPorts()
+
+async function fetchPorts() {
   try {
-    const raw = localStorage.getItem('bl_ports');
-    if (raw) return JSON.parse(raw);
-  } catch (_) {}
-  return DEFAULT_PORTS.map(p => ({ ...p }));
+    const res = await fetch(`${API_BASE}/api/ports`);
+    const json = await res.json();
+    // map snake_case last_run → camelCase lastRun for frontend
+    ports = (json.data || []).map(p => ({ ...p, lastRun: p.last_run ?? null }));
+  } catch (e) {
+    console.warn('fetchPorts failed — is backend running on :8000?', e);
+    ports = [];
+  }
+  renderPortChips();
 }
-
-function savePorts(ports) {
-  localStorage.setItem('bl_ports', JSON.stringify(ports));
-}
-
-let ports = loadPorts();
 
 const CONFIDENCE = {
   'สูงมาก':   0.0002,
@@ -82,8 +80,9 @@ const CONFIDENCE = {
   'ต่ำมาก':    0.0050,
 };
 
-// ── Risk / constraint config (BugFix) ─────────────────────────
-const RISK_FREE  = 0.05;   // annual T-bill, for Sharpe (#5)
+// ── Risk / constraint config ───────────────────────────────────
+// rf() reads live from the slider (default 4.50% = 10-yr US Treasury)
+const rf         = () => +rfEl.value / 100;
 const MAX_WEIGHT = 0.40;   // per-stock cap (#2)
 const MIN_WEIGHT = 0.05;   // per-stock floor (#2)
 const Q_FLOOR    = 0.03;   // auto-view expected return floor (#3)
@@ -146,8 +145,60 @@ function addTicker(raw) {
 const tickerInput = $('#ticker-input');
 const suggestList = $('#ticker-suggest');
 let acIndex = -1;   // keyboard-nav index
+let searchTimer = null;  // debounce handle for live search
 
-function filterSuggestions(q) {
+// ── Live ticker search (debounced → /api/search) ──────────────
+tickerInput.addEventListener('input', () => {
+  const q = tickerInput.value.trim();
+  clearTimeout(searchTimer);
+  if (!q) { suggestList.hidden = true; return; }
+
+  // Show loading placeholder immediately so the user sees feedback
+  suggestList.innerHTML = '<li class="suggest-item suggest-loading">🔍 กำลังค้นหา…</li>';
+  suggestList.hidden = false;
+
+  searchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      renderAPIResults(json.data?.results || [], q);
+    } catch {
+      // Server offline or error — fall back to local TICKER_DB
+      renderSuggestions(filterLocalDB(q));
+    }
+  }, 250);
+});
+
+// Render results from /api/search
+function renderAPIResults(results, rawQuery) {
+  suggestList.innerHTML = '';
+  acIndex = -1;
+  const upper = rawQuery.trim().toUpperCase();
+
+  if (!results.length) {
+    // Nothing found — offer to add as custom ticker
+    const li = document.createElement('li');
+    li.className = 'suggest-item suggest-custom';
+    li.innerHTML = `<b>${upper}</b><span>➕ เพิ่ม custom ticker</span>`;
+    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(upper); });
+    suggestList.appendChild(li);
+    suggestList.hidden = false;
+    return;
+  }
+
+  results.forEach(({ symbol, name, exchange, type }) => {
+    const li = document.createElement('li');
+    li.className = 'suggest-item';
+    const meta = [exchange, type].filter(Boolean).join(' · ');
+    li.innerHTML = `<b>${symbol}</b><span>${name}${meta ? '  <em>' + meta + '</em>' : ''}</span>`;
+    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(symbol); });
+    suggestList.appendChild(li);
+  });
+  suggestList.hidden = false;
+}
+
+// Fallback: filter local TICKER_DB when server is unreachable
+function filterLocalDB(q) {
   if (!q) return [];
   const upper = q.toUpperCase();
   return TICKER_DB.filter(([sym, name]) =>
@@ -155,18 +206,26 @@ function filterSuggestions(q) {
   ).slice(0, 8);
 }
 
+// Render from local DB (fallback or empty-state)
 function renderSuggestions(matches) {
   suggestList.innerHTML = '';
   acIndex = -1;
-  if (!matches.length) { suggestList.hidden = true; return; }
+  const raw = tickerInput.value.trim().toUpperCase();
+  if (!matches.length) {
+    if (!raw) { suggestList.hidden = true; return; }
+    const li = document.createElement('li');
+    li.className = 'suggest-item suggest-custom';
+    li.innerHTML = `<b>${raw}</b><span>➕ เพิ่ม custom ticker</span>`;
+    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(raw); });
+    suggestList.appendChild(li);
+    suggestList.hidden = false;
+    return;
+  }
   matches.forEach(([sym, name]) => {
     const li = document.createElement('li');
     li.className = 'suggest-item';
     li.innerHTML = `<b>${sym}</b><span>${name}</span>`;
-    li.addEventListener('mousedown', e => {
-      e.preventDefault();
-      selectSuggestion(sym);
-    });
+    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(sym); });
     suggestList.appendChild(li);
   });
   suggestList.hidden = false;
@@ -177,16 +236,13 @@ function selectSuggestion(sym) {
   tickerInput.value = '';
   suggestList.hidden = true;
   acIndex = -1;
+  clearTimeout(searchTimer);
 }
 
 function highlightItem(idx) {
   const items = suggestList.querySelectorAll('.suggest-item');
   items.forEach((li, i) => li.classList.toggle('active', i === idx));
 }
-
-tickerInput.addEventListener('input', () => {
-  renderSuggestions(filterSuggestions(tickerInput.value));
-});
 
 tickerInput.addEventListener('keydown', e => {
   const items = suggestList.querySelectorAll('.suggest-item');
@@ -229,45 +285,98 @@ $('#add-ticker').addEventListener('click', () => {
 function renderPortChips() {
   const row = $('#port-chips-row');
   row.innerHTML = '';
+  if (!ports.length) {
+    row.innerHTML = '<span class="muted" style="font-size:12px;padding:4px 2px">ยังไม่มี Port — กด "Save as Port" เพื่อสร้าง</span>';
+    return;
+  }
   ports.forEach(p => {
-    const btn = document.createElement('button');
-    btn.className = 'chip-btn port-chip';
-    btn.title = p.tickers.join(', ');
-    btn.innerHTML = `<span class="port-chip-name">${p.name}</span><span class="port-chip-count">${p.tickers.length}</span>`;
-    btn.addEventListener('click', () => {
+    const wrap = document.createElement('div');
+    wrap.className = 'chip-btn port-chip';
+    wrap.title = p.tickers.join(', ');
+
+    let metricsHtml = '';
+    if (p.lastRun) {
+      const { expReturn, sharpe } = p.lastRun.metrics;
+      metricsHtml = `<span class="port-chip-metrics">${pct(expReturn)} · SR ${sharpe.toFixed(2)}</span>`;
+    }
+
+    wrap.innerHTML = `
+      <div class="port-chip-top">
+        <span class="port-chip-name">${p.name}</span>
+        <span class="port-chip-count">${p.tickers.length}</span>
+        <div class="port-chip-actions">
+          <button class="port-chip-rename icon-btn" title="เปลี่ยนชื่อ">✏️</button>
+          <button class="port-chip-del icon-btn" title="ลบ Port">✕</button>
+        </div>
+      </div>
+      ${metricsHtml}`;
+
+    wrap.querySelector('.port-chip-top').addEventListener('click', e => {
+      if (e.target.closest('.port-chip-actions')) return;
       state.tickers = [...p.tickers];
       renderChips();
-      // flash
-      btn.classList.add('port-chip-active');
-      setTimeout(() => btn.classList.remove('port-chip-active'), 600);
+      wrap.classList.add('port-chip-active');
+      setTimeout(() => wrap.classList.remove('port-chip-active'), 600);
     });
-    row.appendChild(btn);
+
+    wrap.querySelector('.port-chip-rename').addEventListener('click', async e => {
+      e.stopPropagation();
+      const newName = prompt(`เปลี่ยนชื่อ Port "${p.name}":`, p.name);
+      if (!newName || !newName.trim() || newName.trim() === p.name) return;
+      await fetch(`${API_BASE}/api/ports/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      await fetchPorts();
+    });
+
+    wrap.querySelector('.port-chip-del').addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!confirm(`ลบ Port "${p.name}"?`)) return;
+      await fetch(`${API_BASE}/api/ports/${p.id}`, { method: 'DELETE' });
+      await fetchPorts();
+    });
+
+    row.appendChild(wrap);
   });
 }
 
 // ── Save as Port ──────────────────────────────────────────────
-$('#save-as-port').addEventListener('click', () => {
+$('#save-as-port').addEventListener('click', async () => {
   if (!state.tickers.length) { alert('เพิ่มหุ้นก่อนบันทึก'); return; }
   const name = prompt(`บันทึก Port ใหม่\n\nหุ้น: ${state.tickers.join(' · ')}\n\nใส่ชื่อ Port:`);
   if (!name || !name.trim()) return;
   const trimmed = name.trim();
   const existing = ports.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
-  if (existing) {
-    if (!confirm(`Port "${trimmed}" มีอยู่แล้ว — อัปเดต tickers?`)) return;
-    existing.tickers = [...state.tickers];
-  } else {
-    ports.push({ id: `port_${Date.now()}`, name: trimmed, tickers: [...state.tickers] });
+  try {
+    if (existing) {
+      if (!confirm(`Port "${trimmed}" มีอยู่แล้ว — อัปเดต tickers?`)) return;
+      await fetch(`${API_BASE}/api/ports/${existing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tickers: [...state.tickers] }),
+      });
+    } else {
+      await fetch(`${API_BASE}/api/ports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed, tickers: [...state.tickers] }),
+      });
+    }
+    await fetchPorts();
+  } catch (e) {
+    alert('บันทึกไม่สำเร็จ: ' + e.message);
   }
-  savePorts(ports);
-  renderPortChips();
 });
 
 
 // ── Sliders ───────────────────────────────────────────────────
-const deltaEl = $('#delta'), tauEl = $('#tau'), periodEl = $('#period');
-deltaEl.addEventListener('input', () => $('#delta-val').textContent = (+deltaEl.value).toFixed(1));
-tauEl.addEventListener('input', () => $('#tau-val').textContent = (+tauEl.value).toFixed(2));
+const deltaEl = $('#delta'), tauEl = $('#tau'), periodEl = $('#period'), rfEl = $('#rf');
+deltaEl.addEventListener('input',  () => $('#delta-val').textContent  = (+deltaEl.value).toFixed(1));
+tauEl.addEventListener('input',    () => $('#tau-val').textContent    = (+tauEl.value).toFixed(2));
 periodEl.addEventListener('input', () => $('#period-val').textContent = `${periodEl.value} ปี`);
+rfEl.addEventListener('input',     () => $('#rf-val').textContent     = (+rfEl.value).toFixed(2) + '%');
 
 // ── Fetch market data ─────────────────────────────────────────
 function setStatus(msg, cls = '') { const el = $('#fetch-status'); el.textContent = msg; el.className = `status ${cls}`; }
@@ -279,7 +388,7 @@ $('#fetch-data').addEventListener('click', async () => {
   setStatus('กำลังดึงข้อมูลจาก Yahoo Finance…', 'load');
   try {
     const period = `${periodEl.value}y`;
-    const url = `/api/data?tickers=${encodeURIComponent(state.tickers.join(','))}&period=${period}`;
+    const url = `${API_BASE}/api/data?tickers=${encodeURIComponent(state.tickers.join(','))}&period=${period}`;
     const res = await fetch(url);
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'fetch failed');
@@ -541,7 +650,7 @@ $('#run-bl').addEventListener('click', () => {
     metrics: {
       expReturn: BL.portfolioReturn(wStar, out.muBL),
       vol: BL.portfolioVol(wStar, m.sigma),
-      sharpe: BL.sharpe(wStar, out.muBL, m.sigma, RISK_FREE),   // (#5)
+      sharpe: BL.sharpe(wStar, out.muBL, m.sigma, rf()),
       te: BL.trackingError(wStar, m.wMkt, m.sigma),
       leverage: BL.leverage(wRaw),                              // (#9)
     },
@@ -563,7 +672,7 @@ function renderResults() {
   $('#metrics-row').innerHTML = [
     ['Expected Return', pct(er), erCls],
     ['Volatility', pct(vol), ''],
-    [`Sharpe Ratio <span class="m-sub">rf ${pct(RISK_FREE)}</span>`, sh.toFixed(2), ''],
+    [`Sharpe Ratio <span class="m-sub">rf ${pct(rf())}</span>`, sh.toFixed(2), ''],
     [`Tracking Error<span class="m-sub">vs market${teTag}</span>`, pct(te), teCls],
   ].map(([l, v, c]) => `<div class="metric"><div class="m-label">${l}</div><div class="m-value ${c}">${v}</div></div>`).join('');
 
@@ -620,7 +729,7 @@ function renderFrontier(r) {
   ctx.clearRect(0, 0, W, H);
 
   // Use historical sigma (same as metrics card) so chart vol matches displayed numbers.
-  const cloud = BL.randomPortfolios(r.muBL, r.sigma, RISK_FREE, 1800);
+  const cloud = BL.randomPortfolios(r.muBL, r.sigma, rf(), 1800);
   const blPt = { vol: BL.portfolioVol(r.wStar, r.sigma), ret: BL.portfolioReturn(r.wStar, r.muBL) };
   const mkPt = { vol: BL.portfolioVol(r.wMkt, r.sigma), ret: BL.portfolioReturn(r.wMkt, r.muBL) };
   const maxSharpe = cloud.reduce((a, b) => b.sharpe > a.sharpe ? b : a, cloud[0]);
@@ -693,6 +802,113 @@ $('#copy-summary').addEventListener('click', () => {
   });
 });
 
+// ── Save Results to Port ──────────────────────────────────────
+$('#save-results-port').addEventListener('click', () => {
+  if (!state.results) { alert('คำนวณ BL ก่อนแล้วค่อยบันทึก'); return; }
+  renderSaveResultsModal();
+  $('#save-results-modal').hidden = false;
+  setTimeout(() => $('#save-results-modal').querySelector('input')?.focus(), 50);
+});
+
+function closeSaveResultsModal() { $('#save-results-modal').hidden = true; }
+$('#close-save-results-modal').addEventListener('click', closeSaveResultsModal);
+$('#save-results-modal').addEventListener('click', e => {
+  if (e.target === $('#save-results-modal')) closeSaveResultsModal();
+});
+
+function renderSaveResultsModal() {
+  const r = state.results;
+  const body = $('#save-results-modal-body');
+  body.innerHTML = '';
+
+  // Existing ports
+  if (ports.length) {
+    const title = document.createElement('p');
+    title.className = 'modal-section-label';
+    title.textContent = 'บันทึกลง Port ที่มีอยู่';
+    body.appendChild(title);
+
+    ports.forEach((p, idx) => {
+      const tickersMatch = JSON.stringify([...r.tickers].sort()) === JSON.stringify([...p.tickers].sort());
+      const row = document.createElement('div');
+      row.className = 'sri-row' + (tickersMatch ? ' sri-match' : '');
+      row.innerHTML = `
+        <div class="sri-info">
+          <span class="sri-name">${p.name}</span>
+          <span class="sri-tickers">${p.tickers.join(' · ')}</span>
+          ${tickersMatch ? '<span class="sri-badge">✓ tickers ตรงกัน</span>' : ''}
+        </div>
+        <button class="btn btn-sm" data-idx="${idx}">บันทึก</button>`;
+      row.querySelector('button').addEventListener('click', () => saveResultsToPort(idx));
+      body.appendChild(row);
+    });
+  }
+
+  // Create new port + save
+  const divider = document.createElement('p');
+  divider.className = 'modal-section-label';
+  divider.style.marginTop = '16px';
+  divider.textContent = 'หรือสร้าง Port ใหม่';
+  body.appendChild(divider);
+
+  const newRow = document.createElement('div');
+  newRow.className = 'sri-new-row';
+  newRow.innerHTML = `
+    <input id="sri-new-name" type="text" placeholder="ชื่อ Port ใหม่" />
+    <button id="sri-create-btn" class="btn btn-primary btn-sm">สร้าง + บันทึก</button>`;
+  body.appendChild(newRow);
+
+  newRow.querySelector('#sri-new-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') newRow.querySelector('#sri-create-btn').click();
+  });
+  newRow.querySelector('#sri-create-btn').addEventListener('click', async () => {
+    const name = newRow.querySelector('#sri-new-name').value.trim();
+    if (!name) { newRow.querySelector('input').focus(); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/ports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, tickers: [...r.tickers] }),
+      });
+      const json = await res.json();
+      await fetchPorts();                          // refresh local list
+      const idx = ports.findIndex(p => p.id === json.data.id);
+      if (idx >= 0) await saveResultsToPort(idx);
+    } catch (e) {
+      alert('สร้าง Port ไม่สำเร็จ: ' + e.message);
+    }
+  });
+}
+
+async function saveResultsToPort(idx) {
+  const r = state.results;
+  const p = ports[idx];
+  const last_run = {
+    date: new Date().toISOString().slice(0, 10),
+    delta: +deltaEl.value,
+    tau: +tauEl.value,
+    views: state.views.filter(v => v.enabled).map(v => ({ ...v })),
+    weights: Object.fromEntries(r.tickers.map((t, i) => [t, r.wStar[i]])),
+    metrics: { ...r.metrics },
+  };
+  try {
+    await fetch(`${API_BASE}/api/ports/${p.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ last_run }),
+    });
+    await fetchPorts();
+  } catch (e) {
+    alert('บันทึกไม่สำเร็จ: ' + e.message);
+    return;
+  }
+  closeSaveResultsModal();
+  const el = $('#save-results-status');
+  el.textContent = `✅ บันทึกลง Port "${p.name}" แล้ว`;
+  el.className = 'status ok';
+  setTimeout(() => { el.textContent = ''; el.className = 'status'; }, 3000);
+}
+
 // ── Formatting helpers ────────────────────────────────────────
 function pct(x) { return (x * 100).toFixed(2) + '%'; }
 function signed(x) { return (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%'; }
@@ -719,4 +935,4 @@ $('#reset-market').addEventListener('click', () => {
 
 // ── Init ──────────────────────────────────────────────────────
 renderChips();
-renderPortChips();
+fetchPorts();   // async: loads ports from MongoDB → renderPortChips()

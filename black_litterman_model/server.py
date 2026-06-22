@@ -8,6 +8,7 @@ Black-Litterman Optimizer — Local Dev Server + Yahoo Finance Proxy
 Endpoints:
   GET /                          → serves index.html
   GET /api/data?tickers=A,B,C    → monthly prices (3yr) + market cap per ticker
+  GET /api/search?q=apple        → ticker search via yf.Search (live autocomplete)
   GET /<file>                    → serves static files (css, js)
 
 Dependencies:
@@ -106,8 +107,36 @@ class BLHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/data":
             self._handle_data(parsed.query)
+        elif parsed.path == "/api/search":
+            self._handle_search(parsed.query)
         else:
             super().do_GET()
+
+    def _handle_search(self, query_string):
+        """Live ticker search via yf.Search — powers the autocomplete dropdown."""
+        params = urllib.parse.parse_qs(query_string)
+        q = params.get("q", [""])[0].strip()
+        if not q:
+            self._json_ok({"results": []})
+            return
+        import yfinance as yf
+        try:
+            search = yf.Search(q, max_results=8, news_count=0)
+            results = []
+            for item in (search.quotes or []):
+                sym = item.get("symbol", "")
+                if not sym:
+                    continue
+                results.append({
+                    "symbol": sym,
+                    "name": item.get("longname") or item.get("shortname") or sym,
+                    "exchange": item.get("exchange", ""),
+                    "type": item.get("quoteType", ""),
+                })
+            self._json_ok({"results": results})
+        except Exception as e:  # noqa: BLE001
+            print(f"  ⚠️  Search '{q}': {e}")
+            self._json_ok({"results": []})
 
     def _handle_data(self, query_string):
         params = urllib.parse.parse_qs(query_string)

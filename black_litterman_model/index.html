@@ -64,6 +64,10 @@
             <label>History <output id="period-val">3 ปี</output></label>
             <input id="period" type="range" min="1" max="5" step="1" value="3" />
           </div>
+          <div class="slider-row">
+            <label>Risk-free rate <span class="slider-hint">(10-yr Gov Bond)</span> <output id="rf-val">4.50%</output></label>
+            <input id="rf" type="range" min="0" max="10" step="0.25" value="4.5" />
+          </div>
           <button id="fetch-data" class="btn btn-primary btn-block">📡 ดึงข้อมูลตลาด</button>
           <p id="fetch-status" class="status"></p>
         </div>
@@ -171,10 +175,23 @@
         <div class="actions-bar">
           <button id="export-csv" class="btn">⬇ Export CSV</button>
           <button id="copy-summary" class="btn">📋 Copy Summary</button>
+          <button id="save-results-port" class="btn btn-primary">💾 บันทึกลง Port</button>
         </div>
+        <p id="save-results-status" class="status" style="text-align:center;margin-top:8px"></p>
       </div>
     </section>
   </main>
+
+  <!-- ════ Save Results to Port Modal ════ -->
+  <div id="save-results-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>💾 บันทึกผลลัพธ์ลง Port</h3>
+        <button id="close-save-results-modal" class="icon-btn">✕</button>
+      </div>
+      <div id="save-results-modal-body" class="modal-body"></div>
+    </div>
+  </div>
 
 
 

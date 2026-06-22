@@ -113,7 +113,7 @@ for s, wm, ws in zip(stocks, w_mkt, w_star):
     print(f"  {s:<8} {wm:>11.2%} {ws:>11.2%} {diff:>+9.2%} {arrow}")
 
 print("\n" + "=" * 55)
-print("  สรุป: BL ดึง PTT ขึ้น เพราะ 2 Views เชียร์พร้อมกัน")
-print("        CPF ลดลงเล็กน้อย เพราะ View 3 กดลง")
-print("        ไม่มีตัวไหนสุดขั้ว — Prior ดึงให้สมดุลเสมอ")
+print("  สรุป: BL ดึง PTT ขึ้นมากสุด เพราะ View 1 + View 3 เชียร์พร้อมกัน")
+print("        KBANK ลดลงชัดเจน เพราะ View 2 และ View 3 กดลง")
+print("        CPF เพิ่มขึ้นเล็กน้อย — correlation effect ชนะ View 3 ที่อ่อน")
 print("=" * 55)

@@ -17,6 +17,8 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Prevent display:flex/grid rules from overriding the HTML hidden attribute */
+[hidden] { display: none !important; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Sarabun", Roboto, sans-serif;
@@ -121,6 +123,11 @@ input[type="text"]:focus, input[type="number"]:focus { outline: none; border-col
 .suggest-item b { color: var(--accent); min-width: 72px; font-size: 13px; }
 .suggest-item span { color: var(--muted); font-size: 12px; }
 .suggest-item:hover, .suggest-item.active { background: var(--bg-elev); }
+.suggest-custom b { color: var(--green); }
+.suggest-custom span { color: var(--muted); }
+.suggest-loading { color: var(--muted); font-style: italic; cursor: default; }
+.slider-hint { font-size: 11px; color: var(--muted); font-weight: 400; }
+.suggest-item em { color: var(--border); font-style: normal; font-size: 11px; }
 
 /* ── Ports ────────────────────────────────────────────────── */
 .ports-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
@@ -135,10 +142,16 @@ input[type="text"]:focus, input[type="number"]:focus { outline: none; border-col
   font-size: 13px; cursor: pointer; transition: .15s;
 }
 .chip-btn:hover { color: var(--text); border-color: var(--accent); }
-.port-chip { display: flex; align-items: center; gap: 6px; }
+.port-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 7px 12px; }
+.port-chip-top { display: flex; align-items: center; gap: 6px; width: 100%; }
 .port-chip-name { font-weight: 500; }
 .port-chip-count { background: var(--border); color: var(--muted); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+.port-chip-metrics { font-size: 11px; color: var(--green); opacity: .85; }
 .port-chip-active { border-color: var(--accent) !important; color: var(--accent) !important; }
+.port-chip-actions { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.port-chip:hover .port-chip-actions { opacity: 1; }
+.port-chip-rename { font-size: 11px; background: none; border: none; cursor: pointer; padding: 0 2px; }
+.port-chip-del { font-size: 11px; background: none; border: none; color: var(--red); cursor: pointer; padding: 0 2px; }
 
 .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 6px; }
 
@@ -163,6 +176,22 @@ input[type="text"]:focus, input[type="number"]:focus { outline: none; border-col
 #save-port-name { margin: 12px 20px 0; width: calc(100% - 40px); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px 20px; }
 #port-modal-body { overflow-y: auto; padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+
+/* Save Results modal */
+#save-results-modal-body { overflow-y: auto; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+.modal-section-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.sri-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px;
+}
+.sri-row.sri-match { border-color: var(--accent); }
+.sri-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sri-name { font-size: 13px; font-weight: 600; }
+.sri-tickers { font-size: 11px; color: var(--muted); }
+.sri-badge { font-size: 11px; color: var(--accent); }
+.sri-new-row { display: flex; gap: 8px; }
+.sri-new-row input { flex: 1; }
 
 /* manage port cards */
 .manage-port-card {
