@@ -127,6 +127,12 @@ input[type="text"]:focus, input[type="number"]:focus { outline: none; border-col
 .suggest-custom span { color: var(--muted); }
 .suggest-loading { color: var(--muted); font-style: italic; cursor: default; }
 .slider-hint { font-size: 11px; color: var(--muted); font-weight: 400; }
+.prior-toggle { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.prior-opt { display: flex; align-items: center; gap: 4px; font-size: 13px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; transition: border-color .15s; }
+.prior-opt:has(input:checked) { border-color: var(--accent); color: var(--accent); }
+.prior-opt input { accent-color: var(--accent); }
 .suggest-item em { color: var(--border); font-style: normal; font-size: 11px; }
 
 /* ── Ports ────────────────────────────────────────────────── */

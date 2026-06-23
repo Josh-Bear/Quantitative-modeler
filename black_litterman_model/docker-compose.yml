@@ -31,9 +31,15 @@ services:
   # ── nginx frontend ────────────────────────────────────────────────
   frontend:
     build:
-      context: .                      # repo root (so Dockerfile can COPY engine/ etc.)
+      context: .
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
+    volumes:
+      # Mount local files → container แบบ live reload ไม่ต้อง rebuild
+      - ./index.html:/usr/share/nginx/html/index.html
+      - ./style.css:/usr/share/nginx/html/style.css
+      - ./app.js:/usr/share/nginx/html/app.js
+      - ./engine:/usr/share/nginx/html/engine
     ports:
       - "8770:80"
     depends_on:

@@ -75,6 +75,19 @@ const Stats = (() => {
     return total > 0 ? caps.map(c => c / total) : caps.map(() => 1 / tickers.length);
   }
 
+  // Equal weights: 1/n each.
+  function equalWeights(n) {
+    return Array(n).fill(1 / n);
+  }
+
+  // Inverse-volatility weights: w_i = (1/σ_i) / Σ(1/σ_j)
+  // Lower-vol stocks get higher weight.
+  function inverseVolWeights(vols) {
+    const inv = vols.map(v => (v > 0 ? 1 / v : 0));
+    const total = inv.reduce((s, x) => s + x, 0);
+    return total > 0 ? inv.map(x => x / total) : equalWeights(vols.length);
+  }
+
   function annualVol(R, j) {
     const col = R.map(row => row[j]);
     const m = mean(col);
@@ -124,7 +137,8 @@ const Stats = (() => {
 
   return {
     alignPrices, returns, returnsMatrix, covariance,
-    marketWeights, annualVol, momentum, zScore, relativeStrength, mean,
+    marketWeights, equalWeights, inverseVolWeights,
+    annualVol, momentum, zScore, relativeStrength, mean,
   };
 })();
 

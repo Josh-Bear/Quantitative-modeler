@@ -3,51 +3,11 @@
 // ══════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
-// TICKER AUTOCOMPLETE DATABASE
+// TICKER NAME CACHE — populated dynamically (no hardcoding)
+//   • from /api/search when user picks a ticker from dropdown
+//   • from /api/data meta when market data is fetched
 // ══════════════════════════════════════════════════════════════
-const TICKER_DB = [
-  // US Mega-cap
-  ['AAPL','Apple'],['MSFT','Microsoft'],['GOOGL','Alphabet'],['AMZN','Amazon'],
-  ['NVDA','NVIDIA'],['META','Meta'],['TSLA','Tesla'],['BRK-B','Berkshire Hathaway'],
-  ['LLY','Eli Lilly'],['V','Visa'],['JPM','JPMorgan'],['UNH','UnitedHealth'],
-  ['XOM','ExxonMobil'],['JNJ','Johnson & Johnson'],['WMT','Walmart'],
-  ['MA','Mastercard'],['PG','Procter & Gamble'],['HD','Home Depot'],
-  ['CVX','Chevron'],['MRK','Merck'],['ABBV','AbbVie'],['PEP','PepsiCo'],
-  ['KO','Coca-Cola'],['COST','Costco'],['BAC','Bank of America'],['AVGO','Broadcom'],
-  ['NFLX','Netflix'],['CRM','Salesforce'],['AMD','Advanced Micro Devices'],
-  ['ADBE','Adobe'],['QCOM','Qualcomm'],['ORCL','Oracle'],['TXN','Texas Instruments'],
-  ['INTU','Intuit'],['AMGN','Amgen'],['HON','Honeywell'],['IBM','IBM'],
-  ['GE','GE Aerospace'],['CAT','Caterpillar'],['GS','Goldman Sachs'],
-  ['MS','Morgan Stanley'],['BLK','BlackRock'],['SCHW','Schwab'],['C','Citigroup'],
-  ['WFC','Wells Fargo'],['AXP','American Express'],['SPGI','S&P Global'],
-  ['RTX','RTX Corp'],['BA','Boeing'],['LMT','Lockheed Martin'],['UNP','Union Pacific'],
-  ['DE','Deere'],['MMM','3M'],['NEE','NextEra Energy'],['DUK','Duke Energy'],
-  ['SO','Southern Company'],['SLB','SLB (Schlumberger)'],['COP','ConocoPhillips'],
-  ['OXY','Occidental Petroleum'],['MPC','Marathon Petroleum'],['VLO','Valero Energy'],
-  ['PFE','Pfizer'],['BMY','Bristol-Myers'],['GILD','Gilead Sciences'],
-  ['ISRG','Intuitive Surgical'],['MDT','Medtronic'],['ABT','Abbott'],
-  ['DHR','Danaher'],['SYK','Stryker'],['BSX','Boston Scientific'],
-  ['DIS','Disney'],['CMCSA','Comcast'],['T','AT&T'],['VZ','Verizon'],
-  ['TMUS','T-Mobile'],['CHTR','Charter Communications'],
-  ['UBER','Uber'],['LYFT','Lyft'],['ABNB','Airbnb'],['SNAP','Snap'],
-  ['PINS','Pinterest'],['SPOT','Spotify'],['SQ','Block'],['PYPL','PayPal'],
-  ['COIN','Coinbase'],['HOOD','Robinhood'],
-  ['SPY','S&P500 ETF'],['QQQ','Nasdaq-100 ETF'],['DIA','Dow ETF'],
-  ['IWM','Russell 2000 ETF'],['GLD','Gold ETF'],['SLV','Silver ETF'],
-  ['TLT','20yr Treasury ETF'],['HYG','High Yield Bond ETF'],
-  // Thai (SET)
-  ['PTT.BK','PTT'],['AOT.BK','Airports of Thailand'],['KBANK.BK','Kasikorn Bank'],
-  ['CPF.BK','Charoen Pokphand Foods'],['SCB.BK','SCB'],['CPALL.BK','CP All'],
-  ['BBL.BK','Bangkok Bank'],['KTB.BK','Krungthai Bank'],['TRUE.BK','True Corp'],
-  ['GULF.BK','Gulf Energy'],['ADVANC.BK','Advanced Info Service'],
-  ['INTUCH.BK','Intouch Holdings'],['DELTA.BK','Delta Electronics TH'],
-  ['IVL.BK','Indorama Ventures'],['SCC.BK','Siam Cement'],['BH.BK','Bumrungrad'],
-  ['MINT.BK','Minor International'],['TU.BK','Thai Union'],['BJC.BK','BJC'],
-  // HK / China
-  ['700.HK','Tencent'],['9988.HK','Alibaba HK'],['3690.HK','Meituan'],
-  ['0941.HK','China Mobile'],['BABA','Alibaba US'],['JD','JD.com'],['PDD','PDD Holdings'],
-  ['BIDU','Baidu'],['NIO','NIO'],['LI','Li Auto'],['XPEV','Xpeng'],
-];
+const tickerNameCache = new Map();  // 'AAPL' → 'Apple Inc.'
 
 // ══════════════════════════════════════════════════════════════
 // BACKEND API BASE — all /api/* calls go to FastAPI on :8000
@@ -81,10 +41,9 @@ const CONFIDENCE = {
 };
 
 // ── Risk / constraint config ───────────────────────────────────
-// rf() reads live from the slider (default 4.50% = 10-yr US Treasury)
-const rf         = () => +rfEl.value / 100;
-const MAX_WEIGHT = 0.40;   // per-stock cap (#2)
-const MIN_WEIGHT = 0.05;   // per-stock floor (#2)
+const rf   = () => +rfEl.value / 100;
+const minW = () => +minwEl.value / 100;
+const maxW = () => +maxwEl.value / 100;
 const Q_FLOOR    = 0.03;   // auto-view expected return floor (#3)
 const Q_CAP      = 0.15;   // auto-view expected return cap   (#3)
 
@@ -120,7 +79,7 @@ function renderChips() {
   const wrap = $('#ticker-chips');
   wrap.innerHTML = '';
   state.tickers.forEach(t => {
-    const name = TICKER_DB.find(([sym]) => sym === t)?.[1] || '';
+    const name = tickerNameCache.get(t) || '';
     const chip = document.createElement('span');
     chip.className = 'chip';
     chip.innerHTML = `<b>${t}</b>${name ? `<span class="chip-name">${name}</span>` : ''} <button title="ลบ">×</button>`;
@@ -163,8 +122,7 @@ tickerInput.addEventListener('input', () => {
       const json = await res.json();
       renderAPIResults(json.data?.results || [], q);
     } catch {
-      // Server offline or error — fall back to local TICKER_DB
-      renderSuggestions(filterLocalDB(q));
+      renderOfflineFallback();
     }
   }, 250);
 });
@@ -189,49 +147,31 @@ function renderAPIResults(results, rawQuery) {
   results.forEach(({ symbol, name, exchange, type }) => {
     const li = document.createElement('li');
     li.className = 'suggest-item';
+    li.dataset.name = name;
     const meta = [exchange, type].filter(Boolean).join(' · ');
     li.innerHTML = `<b>${symbol}</b><span>${name}${meta ? '  <em>' + meta + '</em>' : ''}</span>`;
-    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(symbol); });
+    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(symbol, name); });
     suggestList.appendChild(li);
   });
   suggestList.hidden = false;
 }
 
-// Fallback: filter local TICKER_DB when server is unreachable
-function filterLocalDB(q) {
-  if (!q) return [];
-  const upper = q.toUpperCase();
-  return TICKER_DB.filter(([sym, name]) =>
-    sym.startsWith(upper) || name.toUpperCase().includes(upper)
-  ).slice(0, 8);
-}
-
-// Render from local DB (fallback or empty-state)
-function renderSuggestions(matches) {
+// Fallback when backend is unreachable — offer custom ticker only
+function renderOfflineFallback() {
+  const raw = tickerInput.value.trim().toUpperCase();
   suggestList.innerHTML = '';
   acIndex = -1;
-  const raw = tickerInput.value.trim().toUpperCase();
-  if (!matches.length) {
-    if (!raw) { suggestList.hidden = true; return; }
-    const li = document.createElement('li');
-    li.className = 'suggest-item suggest-custom';
-    li.innerHTML = `<b>${raw}</b><span>➕ เพิ่ม custom ticker</span>`;
-    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(raw); });
-    suggestList.appendChild(li);
-    suggestList.hidden = false;
-    return;
-  }
-  matches.forEach(([sym, name]) => {
-    const li = document.createElement('li');
-    li.className = 'suggest-item';
-    li.innerHTML = `<b>${sym}</b><span>${name}</span>`;
-    li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(sym); });
-    suggestList.appendChild(li);
-  });
+  if (!raw) { suggestList.hidden = true; return; }
+  const li = document.createElement('li');
+  li.className = 'suggest-item suggest-custom';
+  li.innerHTML = `<b>${raw}</b><span>➕ เพิ่ม custom ticker (backend offline)</span>`;
+  li.addEventListener('mousedown', e => { e.preventDefault(); selectSuggestion(raw); });
+  suggestList.appendChild(li);
   suggestList.hidden = false;
 }
 
-function selectSuggestion(sym) {
+function selectSuggestion(sym, name = '') {
+  if (name) tickerNameCache.set(sym, name);
   addTicker(sym);
   tickerInput.value = '';
   suggestList.hidden = true;
@@ -258,7 +198,8 @@ tickerInput.addEventListener('keydown', e => {
     e.preventDefault();
     if (acIndex >= 0 && items[acIndex]) {
       const sym = items[acIndex].querySelector('b').textContent;
-      selectSuggestion(sym);
+      const name = items[acIndex].dataset.name || '';
+      selectSuggestion(sym, name);
     } else {
       addTicker(tickerInput.value);
       tickerInput.value = '';
@@ -373,10 +314,21 @@ $('#save-as-port').addEventListener('click', async () => {
 
 // ── Sliders ───────────────────────────────────────────────────
 const deltaEl = $('#delta'), tauEl = $('#tau'), periodEl = $('#period'), rfEl = $('#rf');
+const minwEl  = $('#minw'),  maxwEl  = $('#maxw');
 deltaEl.addEventListener('input',  () => $('#delta-val').textContent  = (+deltaEl.value).toFixed(1));
 tauEl.addEventListener('input',    () => $('#tau-val').textContent    = (+tauEl.value).toFixed(2));
 periodEl.addEventListener('input', () => $('#period-val').textContent = `${periodEl.value} ปี`);
 rfEl.addEventListener('input',     () => $('#rf-val').textContent     = (+rfEl.value).toFixed(2) + '%');
+minwEl.addEventListener('input',   () => { $('#minw-val').textContent = minwEl.value + '%'; validateMinMax(); });
+maxwEl.addEventListener('input',   () => { $('#maxw-val').textContent = maxwEl.value + '%'; validateMinMax(); });
+
+function validateMinMax() {
+  // Ensure min < max; clamp if user drags them past each other
+  if (+minwEl.value >= +maxwEl.value) {
+    minwEl.value = Math.max(0, +maxwEl.value - 5);
+    $('#minw-val').textContent = minwEl.value + '%';
+  }
+}
 
 // ── Fetch market data ─────────────────────────────────────────
 function setStatus(msg, cls = '') { const el = $('#fetch-status'); el.textContent = msg; el.className = `status ${cls}`; }
@@ -411,9 +363,18 @@ function buildMarket(data) {
   state.tickers = tickers;                              // drop failed ones
   renderChips();
 
-  const R = Stats.returnsMatrix(aligned.prices, tickers);
-  const sigma = Stats.covariance(R);
-  const wMkt = Stats.marketWeights(data.marketCap, tickers);
+  const R      = Stats.returnsMatrix(aligned.prices, tickers);
+  const sigma  = Stats.covariance(R);
+  const vol    = tickers.map((_, j) => Stats.annualVol(R, j));
+  const wMkt    = Stats.marketWeights(data.marketCap, tickers);
+  const wEqual  = Stats.equalWeights(tickers.length);
+  const wInvVol = Stats.inverseVolWeights(vol);
+
+  // Populate name cache from yfinance meta (no hardcoding needed)
+  for (const [sym, info] of Object.entries(data.meta || {})) {
+    if (info.name) tickerNameCache.set(sym, info.name);
+  }
+  renderChips();  // re-render chips now that names are available
 
   state.market = {
     tickers,
@@ -421,8 +382,8 @@ function buildMarket(data) {
     prices: aligned.prices,
     marketCap: data.marketCap,
     meta: data.meta || {},
-    R, sigma, wMkt,
-    vol: tickers.map((_, j) => Stats.annualVol(R, j)),
+    R, sigma, wMkt, wEqual, wInvVol,
+    vol,
     signals: {
       momentum: Stats.momentum(aligned.prices, tickers),
       zscore:   Stats.zScore(aligned.prices, tickers),
@@ -639,7 +600,7 @@ $('#run-bl').addEventListener('click', () => {
 
   // Unconstrained weights → tradeable weights via long-only + min/max. (#1, #2)
   const wRaw = BL.optimalWeights(delta, out.sigmaBL, out.muBL);
-  const wStar = BL.constrainWeights(wRaw, { longOnly: true, minW: MIN_WEIGHT, maxW: MAX_WEIGHT });
+  const wStar = BL.constrainWeights(wRaw, { longOnly: true, minW: minW(), maxW: maxW() });
 
   state.results = {
     tickers: T,
