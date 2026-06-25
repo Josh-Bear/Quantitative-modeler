@@ -64,9 +64,9 @@ HORIZON = 5        # forecast 5 trading days ahead (~half a week; summary §4)
 LSTM_HIDDEN = 60
 LSTM_LAYERS = 4
 LSTM_DROPOUT = 0.30
-LSTM_LR = 5e-4
-LSTM_BATCH = 64
-LSTM_EPOCHS = 400            # DEFAULT: fast. PAPER value:
+LSTM_LR = 0.0050
+LSTM_BATCH = 32
+LSTM_EPOCHS = 600            # DEFAULT: fast. PAPER value:
 PAPER_EPOCHS = 400          #   reproduce the study with this.
 QUICK_EPOCHS = 3            # `--quick` smoke profile
 

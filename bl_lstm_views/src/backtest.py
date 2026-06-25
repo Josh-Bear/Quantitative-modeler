@@ -67,7 +67,8 @@ def _metrics(period_returns: np.ndarray, periods_per_year: float,
 
 def run_backtest(stock_data: dict, views: dict, w_mkt: np.ndarray,
                  benchmark_close: pd.Series | None,
-                 max_weight: float = C.MAX_WEIGHT) -> dict:
+                 max_weight: float = C.MAX_WEIGHT,
+                 min_weight: float = C.MIN_WEIGHT) -> dict:
     tickers = views["tickers"]
     panel = _close_panel(stock_data, tickers)
 
@@ -100,7 +101,8 @@ def run_backtest(stock_data: dict, views: dict, w_mkt: np.ndarray,
     for j in range(len(grid) - 1):
         t, t_next = grid[j], grid[j + 1]
         Q = np.array([qmaps[tk][t] for tk in tickers])
-        res = bl.solve(sigma, w_mkt, P=P, Q=Q, omega=omega, max_weight=max_weight)
+        res = bl.solve(sigma, w_mkt, P=P, Q=Q, omega=omega,
+                       max_weight=max_weight, min_weight=min_weight)
         w = res["w_star"]
         weight_log.append((t, w))
 
