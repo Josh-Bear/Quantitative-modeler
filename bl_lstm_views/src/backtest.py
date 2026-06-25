@@ -71,9 +71,10 @@ def run_backtest(stock_data: dict, views: dict, w_mkt: np.ndarray,
     tickers = views["tickers"]
     panel = _close_panel(stock_data, tickers)
 
-    # Σ from pre-test daily returns (train + val window)
+    # Σ from pre-test daily returns (train + val window = first 90% of data)
     rets = panel.pct_change().dropna()
-    pre = rets[rets.index <= pd.Timestamp(C.VAL_END)]
+    pre_end = int(len(rets) * (C.TRAIN_RATIO + C.VAL_RATIO))
+    pre = rets.iloc[:pre_end]
     sigma = bl.covariance(pre.to_numpy()) if len(pre) > C.TRADING_DAYS // 12 else bl.covariance(rets.to_numpy())
 
     qmaps = {t: _q_lookup(stock_data, views, t) for t in tickers}

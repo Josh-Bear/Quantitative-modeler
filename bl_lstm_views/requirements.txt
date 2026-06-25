@@ -4,3 +4,4 @@ scikit-learn
 yfinance
 torch
 matplotlib
+optuna        # Optuna_Hyperparameter_Search.ipynb only

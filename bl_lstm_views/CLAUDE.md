@@ -24,6 +24,14 @@ python test.py             # network-free BL-core checks
 `BL_LSTM_Portfolio.ipynb` is the same pipeline as a step-by-step notebook (5 tech tickers),
 calling these `src/` modules — open it from this folder so `from src import …` works.
 
+`Optuna_Hyperparameter_Search.ipynb` grid-searches the LSTM knobs (lr × batch × epochs = 27
+combos) per stock via Optuna `GridSampler`, **reusing `_train_one`** (not a separate Keras
+model) and reporting val-MSE tables + an `lr × batch` heatmap. Reporting-only — it never
+writes back into `constants.py`. `OPTUNA_SMOKE=1` (default) uses tiny epochs for a minutes-long
+sanity run; `OPTUNA_SMOKE=0` runs the real 200/400/600 grid (hours). Adapted from
+`Optuna_Hyperparameter_Search_Plan.md`, which was written for Keras + `data/processed/*.npz`
+(this repo has neither — see the notebook intro for the full deviation list).
+
 ## Architecture
 
 ```

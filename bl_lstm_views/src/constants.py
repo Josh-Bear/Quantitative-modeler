@@ -10,6 +10,7 @@ reproduce the full study (much slower — see README).
 from __future__ import annotations
 
 import os
+from datetime import date, timedelta
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Universe
@@ -63,9 +64,9 @@ HORIZON = 5        # forecast 5 trading days ahead (~half a week; summary §4)
 LSTM_HIDDEN = 60
 LSTM_LAYERS = 4
 LSTM_DROPOUT = 0.30
-LSTM_LR = 5e-3
-LSTM_BATCH = 256
-LSTM_EPOCHS = 20            # DEFAULT: fast. PAPER value:
+LSTM_LR = 1e-4
+LSTM_BATCH = 64
+LSTM_EPOCHS = 400            # DEFAULT: fast. PAPER value:
 PAPER_EPOCHS = 400          #   reproduce the study with this.
 QUICK_EPOCHS = 3            # `--quick` smoke profile
 
@@ -73,10 +74,10 @@ QUICK_EPOCHS = 3            # `--quick` smoke profile
 # all 8 indicators at once (Dense → 8), not 8 separate models. Training-loop extras
 # mirror the plan's Keras callbacks:
 LSTM_OUTPUTS = len(FEATURES)   # =8, multi-output head
-EARLY_STOP_PATIENCE = 20       # stop if val loss hasn't improved in N epochs
-LR_PLATEAU_PATIENCE = 10       # halve LR if val loss plateaus for N epochs
+EARLY_STOP_PATIENCE = 30       # stop if val loss hasn't improved in N epochs
+LR_PLATEAU_PATIENCE = 15       # halve LR if val loss plateaus for N epochs
 LR_PLATEAU_FACTOR = 0.5
-LOG_EVERY = 100                # print train/val loss every N epochs
+LOG_EVERY = 50                # print train/val loss every N epochs
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SVR hyperparameters (summary §4.2, from grid search)
@@ -117,16 +118,15 @@ TRADING_DAYS = 252
 RISK_FREE = 0.05         # annual risk-free rate for Sharpe (matches the JS app)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Date splits (summary §5.2). "today" in this repo is 2026; 2025 is complete.
+# Date splits — ratio-based (70/20/10) so every stock gets proportional data
+# regardless of IPO date. DATA_END is dynamic: always yesterday.
 # ─────────────────────────────────────────────────────────────────────────────
-DATA_START = "2010-01-01"
-TRAIN_START = "2010-01-01"
-TRAIN_END = "2023-12-31"   # 14 years, many market regimes
-VAL_START = "2024-01-01"
-VAL_END = "2024-12-31"
-TEST_START = "2025-01-01"
-TEST_END = "2025-12-31"
-DATA_END = "2026-01-01"     # download through end of test window
+DATA_START  = "2010-01-01"
+DATA_END    = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+TRAIN_RATIO = 0.70   # 70% of each stock's available data
+VAL_RATIO   = 0.20   # 20%
+TEST_RATIO  = 0.10   # 10%
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data fetch

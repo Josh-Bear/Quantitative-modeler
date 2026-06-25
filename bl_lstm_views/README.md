@@ -56,6 +56,24 @@ jupyter notebook BL_LSTM_Portfolio.ipynb
 
 Set `EPOCHS` (default 30) in the imports cell, or via env: `BL_EPOCHS=400 BL_DEVICE=cpu`.
 
+#### Hyperparameter search
+
+`Optuna_Hyperparameter_Search.ipynb` grid-searches the LSTM training knobs (learning rate ×
+batch size × epochs = 27 combinations) per stock with Optuna's `GridSampler`, reusing the same
+`src/` trainer (`_train_one`), and **reports** the validation MSE of every combination as a
+sorted table + an `lr × batch` heatmap (`output/optuna_mse_map.png`). It does **not** apply
+anything — read the tables, then set the values you want in `src/constants.py` by hand.
+
+```bash
+pip install optuna
+jupyter notebook Optuna_Hyperparameter_Search.ipynb   # OPTUNA_SMOKE=1 (default): tiny epochs, minutes
+OPTUNA_SMOKE=0 jupyter nbconvert --to notebook --execute --inplace \
+    --ExecutePreprocessor.timeout=-1 Optuna_Hyperparameter_Search.ipynb   # real grid (200/400/600 epochs, hours)
+```
+
+Adapted from `Optuna_Hyperparameter_Search_Plan.md` (written for Keras + `data/processed/*.npz`)
+to this repo's PyTorch + in-memory-dataset stack; deviations are listed in the notebook's intro.
+
 **GPU memory.** On Apple Silicon the LSTM trains on the MPS GPU, which shares unified
 memory with the whole system. If other apps are holding a lot of GPU memory you may hit
 `MPS backend out of memory` — `run.py` catches this and **automatically falls back to CPU**.

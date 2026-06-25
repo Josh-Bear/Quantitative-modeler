@@ -42,10 +42,14 @@ class StockData:
 
 
 def _date_masks(dates: pd.DatetimeIndex):
-    # DatetimeIndex comparisons already return numpy bool arrays.
-    train = np.asarray((dates >= pd.Timestamp(C.TRAIN_START)) & (dates <= pd.Timestamp(C.TRAIN_END)))
-    val = np.asarray((dates >= pd.Timestamp(C.VAL_START)) & (dates <= pd.Timestamp(C.VAL_END)))
-    test = np.asarray((dates >= pd.Timestamp(C.TEST_START)) & (dates <= pd.Timestamp(C.TEST_END)))
+    # Ratio-based split (70/20/10) — works for any stock regardless of IPO date.
+    n = len(dates)
+    train_end = int(n * C.TRAIN_RATIO)
+    val_end   = int(n * (C.TRAIN_RATIO + C.VAL_RATIO))
+    idx   = np.arange(n)
+    train = idx < train_end
+    val   = (idx >= train_end) & (idx < val_end)
+    test  = idx >= val_end
     return train, val, test
 
 
@@ -113,13 +117,14 @@ def make_windows(sd: StockData, window: int = C.TIME_WINDOW, horizon: int = C.HO
     target_idx = asof_idx + horizon
 
     asof_dates = sd.dates[asof_idx]
-    # split each sample by the day we stand on (asof), so test windows are the
-    # days we'd actually trade on during the test year.
-    train = np.asarray(asof_dates <= pd.Timestamp(C.TRAIN_END))
-    val = np.asarray((asof_dates >= pd.Timestamp(C.VAL_START)) &
-                     (asof_dates <= pd.Timestamp(C.VAL_END)))
-    test = np.asarray((asof_dates >= pd.Timestamp(C.TEST_START)) &
-                      (asof_dates <= pd.Timestamp(C.TEST_END)))
+    # Ratio-based window split — consistent with _date_masks().
+    n_windows = len(asof_idx)
+    w_train_end = int(n_windows * C.TRAIN_RATIO)
+    w_val_end   = int(n_windows * (C.TRAIN_RATIO + C.VAL_RATIO))
+    w_idx = np.arange(n_windows)
+    train = w_idx < w_train_end
+    val   = (w_idx >= w_train_end) & (w_idx < w_val_end)
+    test  = w_idx >= w_val_end
 
     return {
         "X": X, "Y": Y,

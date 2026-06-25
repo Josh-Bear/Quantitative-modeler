@@ -66,11 +66,12 @@ class LSTMRegressor(nn.Module):
 
 
 def _train_one(X, Y, Xval, Yval, *, epochs, lr, batch, device, ticker="",
-               log_every=C.LOG_EVERY, patience=C.EARLY_STOP_PATIENCE):
+               log_every=C.LOG_EVERY, patience=C.EARLY_STOP_PATIENCE,
+               lr_plateau_patience=C.LR_PLATEAU_PATIENCE):
     """Train one multi-output model with val-driven early stopping + LR plateau."""
     model = LSTMRegressor(n_features=X.shape[2], output_size=Y.shape[1]).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    sched = ReduceLROnPlateau(opt, factor=C.LR_PLATEAU_FACTOR, patience=C.LR_PLATEAU_PATIENCE)
+    sched = ReduceLROnPlateau(opt, factor=C.LR_PLATEAU_FACTOR, patience=lr_plateau_patience)
     loss_fn = nn.MSELoss()
 
     Xt = torch.as_tensor(X, dtype=torch.float32, device=device)

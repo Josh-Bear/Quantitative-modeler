@@ -99,9 +99,10 @@ def sq_momentum(high, low, close, length: int = 20, linreg_length: int = 12) -> 
     return detrended.rolling(linreg_length).apply(_linreg_endpoint, raw=True)
 
 
-def obv(close: pd.Series, volume: pd.Series) -> pd.Series:
-    direction = np.sign(close.diff().fillna(0.0))
-    return (direction * volume).fillna(0.0).cumsum()
+def obv(close: pd.Series, volume: pd.Series, ma_window: int = 20) -> pd.Series:
+    raw = (np.sign(close.diff().fillna(0.0)) * volume).fillna(0.0).cumsum()
+    ma = raw.rolling(ma_window).mean()
+    return raw / ma - 1
 
 
 def hilbert_period(close: pd.Series, window: int = 30) -> pd.Series:
