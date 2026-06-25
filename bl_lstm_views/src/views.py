@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from . import constants as C
-from .lstm_model import get_device, predict_indicators, train_all_indicators
+from .lstm_model import get_device, predict_indicators, train_stock_model
 from .preprocessing import StockData
 from .svr_model import predict_price, train_close_svr, train_fit_mse
 
@@ -37,14 +37,15 @@ def _latest_window(sd: StockData) -> np.ndarray:
     return w[None, :, :].astype(np.float32)
 
 
-def _stock_view(sd: StockData, epochs: int, device) -> dict:
-    lstm = train_all_indicators(sd, epochs=epochs, device=device)
-    svr = train_close_svr(sd)
+def compose_view(sd: StockData, lstm: dict, svr) -> dict:
+    """Turn an already-trained LSTM result + SVR into one stock's view dict.
 
+    Single source of truth for the Q/Ω math — reused by both generate_views()
+    (which trains first) and the notebook (which trains in its own cells)."""
     cap = C.VIEW_Q_CAP
 
     # ── live forecast (as of the last available day) ─────────────────────────
-    pred_ind_live = predict_indicators(lstm["models"], _latest_window(sd))  # (1,8)
+    pred_ind_live = predict_indicators(lstm["model"], _latest_window(sd))  # (1,8)
     pred_price_live = float(predict_price(svr, sd, pred_ind_live, sd.ref_raw[-1])[0])
     last_close = float(sd.close_raw[-1])
     q_raw = (pred_price_live - last_close) / last_close
@@ -72,37 +73,59 @@ def _stock_view(sd: StockData, epochs: int, device) -> dict:
         "omega": omega,
         "pred_price": pred_price_live,
         "last_close": last_close,
+        "lstm_val_mse": float(lstm["val_mse"]),
         "lstm_mse_mean": float(np.nanmean(lstm["mse_test"])),
         "svr_fit_mse": train_fit_mse(svr, sd),
         "view_mse_horizon": view_mse_horizon,
         # handles reused by the backtest (avoid retraining)
-        "_models": lstm["models"],
+        "_model": lstm["model"],
         "_svr": svr,
         "_lstm": lstm,
     }
 
 
-def generate_views(stock_data: dict[str, StockData], *, epochs: int = C.LSTM_EPOCHS,
-                   device=None) -> dict:
-    """Train every stock and assemble the BL view package."""
-    device = device or get_device()
-    tickers = list(stock_data.keys())
-    per_stock = {}
-    for t in tickers:
-        print(f"   ▸ {t}: training 8 LSTM + SVR ...")
-        per_stock[t] = _stock_view(stock_data[t], epochs, device)
+def _stock_view(sd: StockData, epochs: int, device) -> dict:
+    """Train one stock (LSTM + SVR) and compose its view."""
+    lstm = train_stock_model(sd, epochs=epochs, device=device)
+    svr = train_close_svr(sd)
+    return compose_view(sd, lstm, svr)
 
-    n = len(tickers)
+
+def assemble_package(per_stock: dict) -> dict:
+    """Build the BL view package {asOf, tickers, P, Q, omega, per_stock} from
+    per-stock view dicts (keyed by ticker)."""
+    tickers = list(per_stock.keys())
     Q = np.array([per_stock[t]["q_annual"] for t in tickers])
     omega = np.array([per_stock[t]["omega"] for t in tickers])
-    P = np.eye(n)                                   # absolute views
-
     return {
         "asOf": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "tickers": tickers,
-        "P": P, "Q": Q, "omega": omega,
+        "P": np.eye(len(tickers)),          # absolute views
+        "Q": Q, "omega": omega,
         "per_stock": per_stock,
     }
+
+
+def generate_views(stock_data: dict[str, StockData], *, epochs: int = C.LSTM_EPOCHS,
+                   device=None) -> dict:
+    """Train every stock (one multi-output LSTM + SVR each) and assemble the package.
+
+    A stock that fails to train (bad/incomplete data, SVR fit error, …) is skipped
+    and the run continues with the rest. Out-of-memory is re-raised so the caller can
+    fall back to CPU (see run.py) instead of silently dropping the whole universe."""
+    device = device or get_device()
+    per_stock = {}
+    for t in stock_data:
+        print(f"   ▸ {t}: training LSTM (8-output) + SVR ...")
+        try:
+            per_stock[t] = _stock_view(stock_data[t], epochs, device)
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                raise                      # let run.py retry the whole run on CPU
+            print(f"   ⚠️  {t}: skipped ({e})")
+        except Exception as e:
+            print(f"   ⚠️  {t}: skipped ({e})")
+    return assemble_package(per_stock)
 
 
 def write_views_json(views: dict, path: str = C.VIEWS_JSON) -> None:
@@ -118,7 +141,7 @@ def write_views_json(views: dict, path: str = C.VIEWS_JSON) -> None:
         "diagnostics": {
             t: {k: views["per_stock"][t][k] for k in (
                 "q_horizon", "q_annual", "omega", "pred_price", "last_close",
-                "lstm_mse_mean", "svr_fit_mse", "view_mse_horizon")}
+                "lstm_val_mse", "lstm_mse_mean", "svr_fit_mse", "view_mse_horizon")}
             for t in views["tickers"]
         },
     }

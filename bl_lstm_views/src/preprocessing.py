@@ -83,6 +83,8 @@ def build_stock_dataset(ticker: str, ohlcv: pd.DataFrame) -> StockData:
         test_mask=test_mask,
     )
     sd.windows = make_windows(sd)
+    if int(sd.windows["train"].sum()) == 0:
+        raise ValueError(f"{ticker}: no usable training windows after indicator warm-up")
     return sd
 
 

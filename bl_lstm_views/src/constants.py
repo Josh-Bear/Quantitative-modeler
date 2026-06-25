@@ -69,6 +69,15 @@ LSTM_EPOCHS = 20            # DEFAULT: fast. PAPER value:
 PAPER_EPOCHS = 400          #   reproduce the study with this.
 QUICK_EPOCHS = 3            # `--quick` smoke profile
 
+# Architecture B (BL_LSTM_Implementation_Plan.md): ONE LSTM per stock that outputs
+# all 8 indicators at once (Dense → 8), not 8 separate models. Training-loop extras
+# mirror the plan's Keras callbacks:
+LSTM_OUTPUTS = len(FEATURES)   # =8, multi-output head
+EARLY_STOP_PATIENCE = 20       # stop if val loss hasn't improved in N epochs
+LR_PLATEAU_PATIENCE = 10       # halve LR if val loss plateaus for N epochs
+LR_PLATEAU_FACTOR = 0.5
+LOG_EVERY = 100                # print train/val loss every N epochs
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SVR hyperparameters (summary §4.2, from grid search)
 # ─────────────────────────────────────────────────────────────────────────────

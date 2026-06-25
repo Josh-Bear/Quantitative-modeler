@@ -21,8 +21,8 @@ yfinance OHLCV (daily, 2010→)
 8 technical indicators           src/indicators.py  (pure pandas/numpy)
   MACD · RSI · squeeze_on · BB_width · KC_width · sq_momentum · OBV · Hilbert
       ↓  MinMax (train-only), 30-day windows, 5-day-ahead targets   src/preprocessing.py
-LSTM ×8 per stock → forecast each indicator 5 days ahead            src/lstm_model.py  (PyTorch)
-      ↓
+LSTM (1 per stock, 8 outputs) → forecast all indicators 5 days ahead  src/lstm_model.py  (PyTorch)
+      ↓                                          (Architecture B)
 SVR: predicted indicators → predicted close price                  src/svr_model.py   (sklearn)
       ↓
 view return q = (pred − last)/last → Q ;  Ω from test error        src/views.py
@@ -43,6 +43,18 @@ python run.py --full                   # paper scope: full DJI list, 400 epochs 
 python run.py --device cpu             # force CPU (see GPU-memory note below)
 python test.py                         # network-free BL-core sanity checks
 ```
+
+### Notebook
+
+`BL_LSTM_Portfolio.ipynb` walks the same pipeline step-by-step (fetch → indicators →
+preprocess → train → SVR → BL → evaluate), calling the same `src/` modules. Open it from
+the `bl_lstm_views/` folder so `from src import …` resolves:
+
+```bash
+jupyter notebook BL_LSTM_Portfolio.ipynb
+```
+
+Set `EPOCHS` (default 30) in the imports cell, or via env: `BL_EPOCHS=400 BL_DEVICE=cpu`.
 
 **GPU memory.** On Apple Silicon the LSTM trains on the MPS GPU, which shares unified
 memory with the whole system. If other apps are holding a lot of GPU memory you may hit

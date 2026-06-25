@@ -69,8 +69,13 @@ def main() -> int:
     # ── 1. fetch ─────────────────────────────────────────────────────────────
     emit("\n[1/5] Fetching market data ...")
     data = fetch_data.fetch(universe)
+    if data["errors"]:
+        for t, why in data["errors"].items():
+            emit(f"   ⚠️  {t}: skipped ({why})")
     bench = fetch_data.download_prices(C.BENCHMARK, C.DATA_START, C.DATA_END)
     bench_close = bench["close"] if bench is not None else None
+    if bench_close is None:
+        emit(f"   ⚠️  {C.BENCHMARK}: unavailable — backtest will run without a benchmark.")
 
     # ── 2. build per-stock datasets ──────────────────────────────────────────
     emit("\n[2/5] Computing indicators + windows ...")
@@ -101,6 +106,18 @@ def main() -> int:
             views = generate_views(stock_data, epochs=epochs, device=device)
         else:
             raise
+
+    # reconcile the universe to whatever actually produced a view — any stock that
+    # failed to train was skipped inside generate_views, so drop it everywhere.
+    dropped = [t for t in tickers if t not in views["tickers"]]
+    if dropped:
+        emit(f"   ⚠️  no views for {dropped} — continuing without them.")
+    tickers = list(views["tickers"])
+    stock_data = {t: stock_data[t] for t in tickers}
+    caps = {t: caps[t] for t in tickers}
+    if len(tickers) < 2:
+        emit("\n✖ Fewer than 2 stocks produced usable views — aborting.")
+        return 1
 
     # ── 4. Black-Litterman (current allocation) ──────────────────────────────
     emit("\n[4/5] Black-Litterman allocation ...")
