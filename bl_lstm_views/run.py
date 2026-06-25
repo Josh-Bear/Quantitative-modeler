@@ -69,9 +69,11 @@ def main() -> int:
     # ── 1. fetch ─────────────────────────────────────────────────────────────
     emit("\n[1/5] Fetching market data ...")
     data = fetch_data.fetch(universe)
+    skipped: dict[str, str] = {}   # accumulate all skipped tickers + reasons
     if data["errors"]:
         for t, why in data["errors"].items():
             emit(f"   ⚠️  {t}: skipped ({why})")
+            skipped[t] = why
     bench = fetch_data.download_prices(C.BENCHMARK, C.DATA_START, C.DATA_END)
     bench_close = bench["close"] if bench is not None else None
     if bench_close is None:
@@ -88,6 +90,7 @@ def main() -> int:
                  f"{stock_data[t].windows['X'].shape[0]} windows")
         except Exception as e:
             emit(f"   ⚠️  {t}: skipped ({e})")
+            skipped[t] = str(e)
     tickers = list(stock_data.keys())
     if len(tickers) < 2:
         emit("\n✖ Need at least 2 usable tickers — aborting.")
@@ -183,6 +186,17 @@ def main() -> int:
     ]
     for name, ok in checks:
         emit(f"    {'✅' if ok else '❌'} {name}")
+
+    # ── skipped tickers summary ───────────────────────────────────────────────
+    if skipped:
+        emit("\n  ⚠️  Skipped tickers (excluded from model):")
+        emit(f"  {'Ticker':<8}  Reason")
+        emit("  " + "-" * 62)
+        for t, reason in sorted(skipped.items()):
+            emit(f"  {t:<8}  {reason}")
+        emit(f"\n  → {len(skipped)} ticker(s) skipped, {len(tickers)} used in the model.")
+    else:
+        emit(f"\n  → All {len(tickers)} tickers used in the model (none skipped).")
 
     # ── persist ──────────────────────────────────────────────────────────────
     write_views_json(views)

@@ -111,11 +111,20 @@ def fetch(tickers: list[str], start: str = C.DATA_START, end: str = C.DATA_END,
     """Fetch OHLCV for `tickers` (+ market caps). Returns
     {prices: {t: df}, market_caps: {t: float}, errors: {t: str}}."""
     print(f"  ↗  Fetching {tickers}  ({start} → {end})")
+    print(f"      (minimum {C.MIN_TOTAL_DAYS} days required: "
+          f"{C.MIN_TRAIN_DAYS} train + {C.VAL_DAYS} val + {C.TEST_DAYS} test)")
     prices, errors = {}, {}
     for t in tickers:
         df = download_prices(t, start, end)
         if df is None or df.empty:
             errors[t] = "no usable price data (download + cache failed)"
+            continue
+        if len(df) < C.MIN_TOTAL_DAYS:
+            errors[t] = (
+                f"insufficient history: {len(df)} days < {C.MIN_TOTAL_DAYS} required "
+                f"({C.MIN_TRAIN_DAYS} train + {C.VAL_DAYS} val + {C.TEST_DAYS} test)"
+            )
+            print(f"  ✂️   {t}: dropped — {errors[t]}")
             continue
         prices[t] = df
         time.sleep(C.RATE_LIMIT_SLEEP)

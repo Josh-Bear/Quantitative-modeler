@@ -42,14 +42,20 @@ class StockData:
 
 
 def _date_masks(dates: pd.DatetimeIndex):
-    # Ratio-based split (70/20/10) — works for any stock regardless of IPO date.
+    # Hybrid split: fixed TEST_DAYS from end, then VAL_DAYS, remainder = train.
+    # Stocks with < MIN_TOTAL_DAYS are rejected here (caller catches ValueError).
     n = len(dates)
-    train_end = int(n * C.TRAIN_RATIO)
-    val_end   = int(n * (C.TRAIN_RATIO + C.VAL_RATIO))
+    if n < C.MIN_TOTAL_DAYS:
+        raise ValueError(
+            f"insufficient data: {n} rows < {C.MIN_TOTAL_DAYS} required "
+            f"(MIN_TRAIN={C.MIN_TRAIN_DAYS} + VAL={C.VAL_DAYS} + TEST={C.TEST_DAYS})"
+        )
+    test_start = n - C.TEST_DAYS
+    val_start  = test_start - C.VAL_DAYS
     idx   = np.arange(n)
-    train = idx < train_end
-    val   = (idx >= train_end) & (idx < val_end)
-    test  = idx >= val_end
+    train = idx < val_start
+    val   = (idx >= val_start) & (idx < test_start)
+    test  = idx >= test_start
     return train, val, test
 
 
@@ -117,14 +123,15 @@ def make_windows(sd: StockData, window: int = C.TIME_WINDOW, horizon: int = C.HO
     target_idx = asof_idx + horizon
 
     asof_dates = sd.dates[asof_idx]
-    # Ratio-based window split — consistent with _date_masks().
-    n_windows = len(asof_idx)
-    w_train_end = int(n_windows * C.TRAIN_RATIO)
-    w_val_end   = int(n_windows * (C.TRAIN_RATIO + C.VAL_RATIO))
-    w_idx = np.arange(n_windows)
-    train = w_idx < w_train_end
-    val   = (w_idx >= w_train_end) & (w_idx < w_val_end)
-    test  = w_idx >= w_val_end
+    # Hybrid window split — align windows to the same fixed-days boundaries used in
+    # _date_masks().  A window belongs to the split of its asof_idx (the day we stand on).
+    n_raw = len(sd.dates)
+    test_start_idx = n_raw - C.TEST_DAYS
+    val_start_idx  = test_start_idx - C.VAL_DAYS
+    w_idx = np.arange(len(asof_idx))
+    train = asof_idx < val_start_idx
+    val   = (asof_idx >= val_start_idx) & (asof_idx < test_start_idx)
+    test  = asof_idx >= test_start_idx
 
     return {
         "X": X, "Y": Y,

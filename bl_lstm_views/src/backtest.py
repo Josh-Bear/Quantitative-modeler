@@ -71,9 +71,9 @@ def run_backtest(stock_data: dict, views: dict, w_mkt: np.ndarray,
     tickers = views["tickers"]
     panel = _close_panel(stock_data, tickers)
 
-    # Σ from pre-test daily returns (train + val window = first 90% of data)
+    # Σ from pre-test daily returns (train + val = everything before the fixed test window)
     rets = panel.pct_change().dropna()
-    pre_end = int(len(rets) * (C.TRAIN_RATIO + C.VAL_RATIO))
+    pre_end = max(0, len(rets) - C.TEST_DAYS)
     pre = rets.iloc[:pre_end]
     sigma = bl.covariance(pre.to_numpy()) if len(pre) > C.TRADING_DAYS // 12 else bl.covariance(rets.to_numpy())
 

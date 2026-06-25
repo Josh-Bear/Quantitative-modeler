@@ -64,7 +64,7 @@ HORIZON = 5        # forecast 5 trading days ahead (~half a week; summary §4)
 LSTM_HIDDEN = 60
 LSTM_LAYERS = 4
 LSTM_DROPOUT = 0.30
-LSTM_LR = 1e-4
+LSTM_LR = 5e-4
 LSTM_BATCH = 64
 LSTM_EPOCHS = 400            # DEFAULT: fast. PAPER value:
 PAPER_EPOCHS = 400          #   reproduce the study with this.
@@ -118,15 +118,16 @@ TRADING_DAYS = 252
 RISK_FREE = 0.05         # annual risk-free rate for Sharpe (matches the JS app)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Date splits — ratio-based (70/20/10) so every stock gets proportional data
-# regardless of IPO date. DATA_END is dynamic: always yesterday.
+# Date splits — Hybrid: fixed val/test windows from the end, train = remainder.
+# DATA_END is dynamic: always yesterday.
 # ─────────────────────────────────────────────────────────────────────────────
-DATA_START  = "2010-01-01"
-DATA_END    = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+DATA_START     = "2010-01-01"
+DATA_END       = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
 
-TRAIN_RATIO = 0.70   # 70% of each stock's available data
-VAL_RATIO   = 0.20   # 20%
-TEST_RATIO  = 0.10   # 10%
+TEST_DAYS      = 252   # 1 year  — fixed test window (most recent)
+VAL_DAYS       = 126   # 6 months — fixed val window (before test)
+MIN_TRAIN_DAYS = 500   # minimum training days required (~2 years)
+MIN_TOTAL_DAYS = MIN_TRAIN_DAYS + VAL_DAYS + TEST_DAYS  # = 878 days minimum
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data fetch
