@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Black-Litterman Portfolio Optimizer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">Σ</span>
+      <div>
+        <h1>Black-Litterman Optimizer</h1>
+        <p class="tagline">Market priors × your views → optimal weights</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-page="setup">1 · Setup</button>
+      <button class="tab" data-page="views">2 · Views</button>
+      <button class="tab" data-page="results">3 · Results</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ════════════════ PAGE 1: SETUP ════════════════ -->
+    <section id="page-setup" class="page active">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Stock Selector</h2>
+          <div class="autocomplete-wrap">
+            <div class="ticker-input-row">
+              <input id="ticker-input" type="text" placeholder="พิมพ์ ticker เช่น AAPL แล้ว Enter" autocomplete="off" />
+              <button id="add-ticker" class="btn">+ เพิ่ม</button>
+            </div>
+            <ul id="ticker-suggest" class="suggest-list" hidden></ul>
+          </div>
+          <div id="ticker-chips" class="chips"></div>
+
+          <!-- ── Ports (editable portfolios) ── -->
+          <div class="ports-section">
+            <div class="ports-header">
+              <span class="preset-label">Ports</span>
+              <div class="ports-actions">
+                <button id="save-as-port" class="btn btn-sm" title="บันทึก tickers ปัจจุบันเป็น port ใหม่">💾 Save as Port</button>
+              </div>
+            </div>
+            <div id="port-chips-row" class="port-chips-row"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Parameters</h2>
+          <div class="slider-row">
+            <label>δ (Delta) — Risk aversion <output id="delta-val">3.0</output></label>
+            <input id="delta" type="range" min="1" max="10" step="0.1" value="3.0" />
+          </div>
+          <div class="slider-row">
+            <label>τ (Tau) — Prior uncertainty <output id="tau-val">0.05</output></label>
+            <input id="tau" type="range" min="0.01" max="0.2" step="0.01" value="0.05" />
+          </div>
+          <div class="slider-row">
+            <label>History <output id="period-val">3 ปี</output></label>
+            <input id="period" type="range" min="1" max="5" step="1" value="3" />
+          </div>
+          <div class="slider-row">
+            <label>Risk-free rate <span class="slider-hint">(10-yr Gov Bond)</span> <output id="rf-val">4.50%</output></label>
+            <input id="rf" type="range" min="0" max="10" step="0.25" value="4.5" />
+          </div>
+<div class="slider-row">
+            <label>Min Weight <output id="minw-val">5%</output></label>
+            <input id="minw" type="range" min="0" max="20" step="1" value="5" />
+          </div>
+          <div class="slider-row">
+            <label>Max Weight <output id="maxw-val">10%</output></label>
+            <input id="maxw" type="range" min="5" max="100" step="5" value="10" />
+          </div>
+          <button id="fetch-data" class="btn btn-primary btn-block">📡 ดึงข้อมูลตลาด</button>
+          <p id="fetch-status" class="status"></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Data Preview</h2>
+        <div class="table-wrap">
+          <table id="preview-table">
+            <thead>
+              <tr>
+                <th>Ticker</th><th>Name</th><th>Market Cap</th>
+                <th>w_mkt</th><th>Annual Vol</th><th>Momentum</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="7" class="muted">ยังไม่มีข้อมูล — เพิ่มหุ้นแล้วกด "ดึงข้อมูลตลาด"</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ PAGE 2: VIEWS ════════════════ -->
+    <section id="page-views" class="page">
+      <div class="card">
+        <h2>Auto Signal Generator</h2>
+        <p class="muted">สร้าง views อัตโนมัติจาก 3 signals: Momentum · Mean-Reversion · Relative Strength</p>
+        <div class="auto-controls">
+          <label class="chk"><input type="checkbox" id="sig-mom" checked /> Momentum</label>
+          <label class="chk"><input type="checkbox" id="sig-rev" checked /> Mean-Reversion</label>
+          <label class="chk"><input type="checkbox" id="sig-rs" checked /> Relative Strength</label>
+          <button id="gen-auto" class="btn btn-primary">⚡ Generate Auto Views</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Manual View Builder</h2>
+          <button id="add-view" class="btn">+ เพิ่ม View</button>
+        </div>
+        <div id="views-list" class="views-list">
+          <p class="muted" id="no-views-msg">ยังไม่มี view — กด "เพิ่ม View" หรือ "Generate Auto Views"</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>View Summary</h2>
+        <div class="table-wrap">
+          <table id="view-summary">
+            <thead><tr><th>#</th><th>ประเภท</th><th>Picks</th><th>Q</th><th>Confidence (Ω)</th><th>ดัน</th></tr></thead>
+            <tbody><tr><td colspan="6" class="muted">ยังไม่มี view</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button id="reset-market" class="btn">↺ Reset to Market</button>
+        <button id="run-bl" class="btn btn-primary btn-lg">🧮 คำนวณ Black-Litterman →</button>
+      </div>
+    </section>
+
+    <!-- ════════════════ PAGE 3: RESULTS ════════════════ -->
+    <section id="page-results" class="page">
+      <div id="results-empty" class="card">
+        <p class="muted">ยังไม่มีผลลัพธ์ — กลับไปหน้า Views แล้วกด "คำนวณ Black-Litterman"</p>
+      </div>
+
+      <div id="results-body" style="display:none">
+        <div class="metrics-row" id="metrics-row"></div>
+        <div id="results-warnings"></div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h2>Weight Comparison</h2>
+            <div class="table-wrap">
+              <table id="weight-table">
+                <thead><tr><th>หุ้น</th><th>w_mkt</th><th>w* (BL)</th><th>Δ Change</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="weight-chart" class="chart"></div>
+          </div>
+
+          <div class="card">
+            <h2>Returns</h2>
+            <div class="table-wrap">
+              <table id="return-table">
+                <thead><tr><th>หุ้น</th><th>Π (Prior)</th><th>μ_BL</th><th>Δ Change</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Efficient Frontier</h2>
+          <canvas id="frontier-canvas" width="900" height="420"></canvas>
+          <div class="legend">
+            <span><i class="dot dot-cloud"></i> Random portfolios</span>
+            <span><i class="dot dot-mkt"></i> Market</span>
+            <span><i class="dot dot-bl"></i> BL Optimal</span>
+            <span><i class="dot dot-sharpe"></i> Max Sharpe</span>
+          </div>
+        </div>
+
+        <div class="actions-bar">
+          <button id="export-csv" class="btn">⬇ Export CSV</button>
+          <button id="copy-summary" class="btn">📋 Copy Summary</button>
+          <button id="save-results-port" class="btn btn-primary">💾 บันทึกลง Port</button>
+        </div>
+        <p id="save-results-status" class="status" style="text-align:center;margin-top:8px"></p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ════ Save Results to Port Modal ════ -->
+  <div id="save-results-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>💾 บันทึกผลลัพธ์ลง Port</h3>
+        <button id="close-save-results-modal" class="icon-btn">✕</button>
+      </div>
+      <div id="save-results-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+
+
+
+  <script src="engine/matrix.js"></script>
+  <script src="engine/stats.js"></script>
+  <script src="engine/blacklitterman.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

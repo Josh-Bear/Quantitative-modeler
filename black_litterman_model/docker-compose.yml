@@ -1,0 +1,49 @@
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────────
+  db:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["mongod", "--quiet"]   # suppress connection lifecycle logs
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"   # expose so Compass can connect directly
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI backend ───────────────────────────────────────────────
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGODB_URL: mongodb://db:27017   # override for Docker network
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── nginx frontend ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    volumes:
+      # Mount local files → container แบบ live reload ไม่ต้อง rebuild
+      - ./index.html:/usr/share/nginx/html/index.html
+      - ./style.css:/usr/share/nginx/html/style.css
+      - ./app.js:/usr/share/nginx/html/app.js
+      - ./engine:/usr/share/nginx/html/engine
+    ports:
+      - "8770:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
