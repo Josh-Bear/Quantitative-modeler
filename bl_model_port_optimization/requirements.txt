@@ -1,0 +1,14 @@
+numpy
+pandas
+scipy
+scikit-learn
+torch
+yfinance
+requests
+lxml          # pd.read_html of the Wikipedia S&P 500 table
+pyarrow       # parquet I/O
+ta            # technical indicators (RSI, ATR, MACD, Keltner, Bollinger)
+TA-Lib        # HT_DCPERIOD (Hilbert dominant cycle) — needs the ta-lib C library
+              #   macOS:  brew install ta-lib  then  pip install TA-Lib
+fredapi       # optional: 3-month T-bill risk-free rate (FRED DTB3); falls back to 0%
+matplotlib    # report figures

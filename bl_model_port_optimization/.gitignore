@@ -1,0 +1,8 @@
+# Generated artifacts — recreated by run.py (large parquet price/feature files,
+# cached predictions, BL/portfolio outputs, report figures)
+data/
+output/
+__pycache__/
+*.pyc
+.DS_Store
+bl_spec/
