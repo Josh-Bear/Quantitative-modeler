@@ -30,7 +30,8 @@ BACKTEST_END = DATA_END
 # ─────────────────────────────────────────────────────────────────────────────
 ROLLING_WINDOW_YEARS = 10        # fixed-size rolling training window
 REBALANCE_FREQ = "3MS"           # quarterly (every 3 months, quarter starts)
-INPUT_WINDOW = 30                # trading days fed to the LSTM
+INPUT_WINDOW = 63                # trading days fed to the LSTM — 1:1 with HORIZON
+                                 #   (window = forecast horizon; see 03_ML_MODEL.md §2)
 HORIZON = 63                     # 63-trading-day forward return (the target)
 TRADING_DAYS = 252               # annualisation / unit conversions
 

@@ -5,11 +5,15 @@ Module 2: Feature Engineering — the 8 technical indicators
 Computes, per ticker per day, the 8 indicators the LSTM consumes:
     rsi, atr, macd_hist, keltner_pos, bb_pctb, squeeze_on, momentum_pct, ht_dcperiod
 
-Library policy (02 §2): use `ta` for the indicators with a clean one-liner
-(RSI, MACD histogram, ROC) to reduce bugs; hand-roll ATR / Keltner / Bollinger /
-Squeeze so the band-based trio share *consistent* bounds (the squeeze is defined
-by comparing the Bollinger and Keltner bands, so they must come from the same
-formulas); HT_DCPERIOD comes from TA-Lib (the only source for it).
+Library policy (02 §2): the spec suggests `ta`/`pandas-ta` "to reduce bugs" but
+also provides hand-rolled formulas as a sanctioned fallback. We hand-roll all 7
+of the price-band/momentum indicators in pure pandas/numpy (matching the sibling
+bl_lstm_views' deliberately dependency-light approach) — this is more robust
+across environments (a missing `ta` install previously caused a silent
+mass-failure) and the band trio (Keltner/Bollinger/Squeeze) MUST share consistent
+bounds anyway since the squeeze is defined by comparing them. HT_DCPERIOD is the
+one indicator with no pure-Python equivalent, so it comes from TA-Lib (02 §2.8) —
+the only external indicator dependency, checked for up front.
 
 Output is RAW (unstandardised) — per-window z-scoring happens in M3 so it can
 respect the walk-forward constraint (02 §4.2). Warm-up rows (NaN) are dropped
@@ -47,6 +51,38 @@ def _atr(high, low, close, window: int) -> pd.Series:
     return _true_range(high, low, close).rolling(window).mean()
 
 
+def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
+    """Wilder's RSI (02 §2.1): RS = avg_gain/avg_loss with Wilder smoothing."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+    avg_loss = loss.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+    rs = avg_gain / avg_loss
+    return 100 - 100 / (1 + rs)
+
+
+def _macd_hist(close: pd.Series, fast=12, slow=26, signal=9) -> pd.Series:
+    """MACD histogram = (EMA_fast - EMA_slow) - signal EMA (02 §2.3)."""
+    macd_line = close.ewm(span=fast, adjust=False).mean() - close.ewm(span=slow, adjust=False).mean()
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    return macd_line - signal_line
+
+
+def check_indicator_deps() -> None:
+    """Fail fast with a clear message if TA-Lib (HT_DCPERIOD) is unavailable —
+    a missing library is a fatal config error, not a per-ticker data issue."""
+    try:
+        import talib  # noqa: F401
+    except ImportError as e:
+        raise RuntimeError(
+            "TA-Lib is required for the Hilbert dominant-cycle indicator but is "
+            "not importable in this interpreter. Install it (macOS: `brew install "
+            "ta-lib` then `pip install TA-Lib`) or run with the repo .venv "
+            "(`.venv/bin/python`), which already has it. "
+            f"Original error: {e}") from e
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main per-ticker indicator computation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +91,6 @@ def compute_indicators(ohlcv_df: pd.DataFrame) -> pd.DataFrame:
     Output: [date, rsi, atr, macd_hist, keltner_pos, bb_pctb, squeeze_on,
              momentum_pct, ht_dcperiod] with warm-up NaN rows dropped.
     """
-    import ta
     import talib
 
     df = ohlcv_df.sort_values("date").reset_index(drop=True)
@@ -63,15 +98,14 @@ def compute_indicators(ohlcv_df: pd.DataFrame) -> pd.DataFrame:
 
     out = pd.DataFrame({"date": df["date"]})
 
-    # 2.1 RSI(14) — library
-    out["rsi"] = ta.momentum.RSIIndicator(close, window=14).rsi()
+    # 2.1 RSI(14) — hand-rolled Wilder's RSI
+    out["rsi"] = _rsi(close, window=14)
 
     # 2.2 ATR(14) — hand-rolled rolling mean of TR (matches spec formula)
     out["atr"] = _atr(high, low, close, window=14)
 
-    # 2.3 MACD histogram = MACD line - signal — library
-    out["macd_hist"] = ta.trend.MACD(
-        close, window_slow=26, window_fast=12, window_sign=9).macd_diff()
+    # 2.3 MACD histogram = MACD line - signal — hand-rolled
+    out["macd_hist"] = _macd_hist(close)
 
     # 2.4 Keltner channel position = (close - lower) / (upper - lower),
     #     middle = EMA(20), bands = middle ± 2·ATR(10)  (hand-rolled, shared
@@ -93,8 +127,8 @@ def compute_indicators(ohlcv_df: pd.DataFrame) -> pd.DataFrame:
     # 2.6 TTM Squeeze on/off — BB inside KC ⇒ compression (0/1)
     out["squeeze_on"] = ((bb_upper < kc_upper) & (bb_lower > kc_lower)).astype(int)
 
-    # 2.7 Momentum — normalised 10-day rate-of-change — library
-    out["momentum_pct"] = ta.momentum.ROCIndicator(close, window=10).roc() / 100.0
+    # 2.7 Momentum — normalised 10-day rate-of-change — hand-rolled
+    out["momentum_pct"] = close.pct_change(periods=10)
 
     # 2.8 Hilbert transform dominant cycle period — TA-Lib (only source)
     out["ht_dcperiod"] = talib.HT_DCPERIOD(close.to_numpy(dtype="float64"))
@@ -142,6 +176,7 @@ def load_features(ticker: str) -> Optional[pd.DataFrame]:
 def run_feature_engineering(tickers: list[str], force: bool = False) -> list[str]:
     """Compute features for every ticker (skip-and-continue). Returns the
     tickers that produced a usable feature file."""
+    check_indicator_deps()  # fail fast on a missing library before looping 500 tickers
     ok = []
     for i, t in enumerate(tickers, 1):
         try:

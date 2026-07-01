@@ -28,7 +28,14 @@ python test.py                            # network-free core checks (BL / opt /
 ```
 
 Uses the repo-root `.venv` (Python 3.14: numpy, pandas, scipy, sklearn, torch,
-yfinance, ta, talib, pyarrow, lxml, fredapi, matplotlib).
+yfinance, talib, pyarrow, lxml, fredapi, matplotlib). **TA-Lib is the only external
+indicator library** (HT_DCPERIOD); every other indicator is hand-rolled in pure
+pandas/numpy, so a missing `ta`/`pandas-ta` can't break feature engineering.
+`features.check_indicator_deps()` fails fast with a clear message if TA-Lib is
+absent (it previously degraded to a silent per-ticker mass-skip).
+
+> Run with `.venv/bin/python` (or activate it). A different interpreter that lacks
+> these packages is the usual cause of `No module named …` mid-run.
 
 ## Architecture (modules map 1:1 to the spec)
 
@@ -36,7 +43,7 @@ yfinance, ta, talib, pyarrow, lxml, fredapi, matplotlib).
 run.py                  # orchestrate M1→M8; profiles; summary + QA
 src/constants.py        # ALL config — locked decisions (00 §4) + 09 defaults; resolve_profile()
 src/data_pipeline.py    # M1: S&P500 list (Wikipedia), yfinance OHLCV→parquet, mcap A→B, sector map, QA
-src/features.py         # M2: 8 indicators (ta + hand-rolled bands + TA-Lib Hilbert); raw, warm-up dropped
+src/features.py         # M2: 8 indicators (pure pandas/numpy + TA-Lib Hilbert only); raw, warm-up dropped
 src/ml_model.py         # M3: per-stock LSTM extractor (Option A) → SVR; ω from val residuals; walk-forward
 src/selection.py        # M4: top-2/sector → 22-stock universe; turnover
 src/black_litterman.py  # M5: Σ(×63) → P,Q (block) → Ω (two scales) → Π → μ_BL

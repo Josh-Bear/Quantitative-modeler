@@ -197,8 +197,11 @@ def reconstruct_mcap(tickers: list[str]) -> pd.DataFrame:
 
     frames = []
     fallback_tickers: list[str] = []
+    n = len(tickers)
 
-    for t in tickers:
+    for i, t in enumerate(tickers, 1):
+        if i % 50 == 0 or i == n:
+            print(f"[M1] market cap {i}/{n} …", flush=True)
         prices = load_prices(t)
         if prices is None or prices.empty:
             continue

@@ -5,7 +5,7 @@ Module 3: ML Model — LSTM (feature extractor) → SVR, per stock
 For one stock at one rebalance date, using ONLY the rolling 10-year window of
 features ending before that date (no look-ahead, 00 §5.1):
 
-  1. Build 30-day input windows + 63-day-forward-return targets (overlapping,
+  1. Build 63-day input windows + 63-day-forward-return targets (overlapping,
      stride 1). Targets whose 63-day-ahead close falls on/after the rebalance
      date are dropped — using them would peek past `t` (00 §5.1).
   2. Chronological 80/20 train/val split (never shuffled — 03 §2).
@@ -15,7 +15,7 @@ features ending before that date (no look-ahead, 00 §5.1):
      the head and use the final hidden state as a fixed feature vector.
   5. Train the SVR (RBF) on train hidden states → predict the 63-day return.
   6. ω_i = variance of SVR residuals on the VALIDATION set (03 §5 — never train).
-  7. Predict r_hat for the most recent 30-day window (ending at reb_date − 1).
+  7. Predict r_hat for the most recent 63-day window (ending at reb_date − 1).
 
 `train_and_predict_at_date(ticker, reb_date)` is the unit of work M7 calls per
 stock per rebalance.
@@ -90,7 +90,7 @@ def build_training_data(ticker: str, reb_date, min_samples: int = 100) -> Option
     n = len(feats)
     w, h = C.INPUT_WINDOW, C.HORIZON
 
-    # As-of positions p that have a full 30-day window behind them: p in [w-1, n-1].
+    # As-of positions p that have a full 63-day window behind them: p in [w-1, n-1].
     # Target(p) = close[p+h]/close[p] - 1, valid only if p+h <= n-1 (the forward
     # close is still inside the pre-rebalance slice → no look-ahead).
     asof_positions = np.arange(w - 1, n)
@@ -293,11 +293,16 @@ def tune_svr_hyperparams(sample_tickers: list[str], ref_date, epochs: int,
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_universe(tickers: list[str], reb_date, epochs: int,
                      svr_C: float, svr_eps: float, n_jobs: int = 1,
-                     device=None) -> pd.DataFrame:
+                     device=None, progress_every: int = 25) -> pd.DataFrame:
     """Run train_and_predict_at_date for every ticker → DataFrame[ticker, r_hat, omega].
 
     n_jobs > 1 fans out across stocks with joblib (independent per stock, 07 §5).
+    Prints periodic per-stock progress so a long per-date training pass (hundreds
+    of stocks) never looks hung.
     """
+    n = len(tickers)
+    key = pd.Timestamp(reb_date).date().isoformat()
+
     def one(t):
         try:
             return train_and_predict_at_date(t, reb_date, epochs=epochs,
@@ -308,10 +313,20 @@ def predict_universe(tickers: list[str], reb_date, epochs: int,
 
     if n_jobs and n_jobs != 1:
         from joblib import Parallel, delayed
-        results = Parallel(n_jobs=n_jobs, prefer="processes")(
+        # joblib's verbose emits periodic "Done X tasks | elapsed:" lines to stderr
+        results = Parallel(n_jobs=n_jobs, prefer="processes", verbose=10)(
             delayed(one)(t) for t in tickers)
     else:
-        results = [one(t) for t in tickers]
+        results, skipped = [], 0
+        for i, t in enumerate(tickers, 1):
+            r = one(t)
+            results.append(r)
+            skipped += (r is None)
+            if i % progress_every == 0 or i == n:
+                print(f"      [M3] {key}: {i}/{n} stocks trained "
+                      f"({skipped} skipped)", flush=True)
 
     rows = [r for r in results if r is not None]
+    print(f"    [M3] {key}: {len(rows)}/{n} predictions ready "
+          f"({n - len(rows)} skipped).", flush=True)
     return pd.DataFrame(rows, columns=["ticker", "r_hat", "omega"])

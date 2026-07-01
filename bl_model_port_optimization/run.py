@@ -31,6 +31,9 @@ def parse_args():
     g.add_argument("--quick", action="store_true", help="smoke profile")
     g.add_argument("--full", action="store_true", help="full S&P 500 paper scope")
     p.add_argument("--jobs", type=int, default=1, help="CPU workers for per-stock training")
+    p.add_argument("--epochs", type=int, default=None,
+                   help="override the profile's LSTM epochs (e.g. --full --epochs 40 for a "
+                        "faster full run)")
     p.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
     p.add_argument("--force-data", action="store_true", help="re-download / recompute data")
     return p.parse_args()
@@ -45,8 +48,11 @@ def main() -> int:
     args = parse_args()
     profile = "quick" if args.quick else "full" if args.full else "default"
     cfg = C.resolve_profile(profile)
+    if args.epochs is not None:          # CLI override of the profile's epochs
+        cfg["epochs"] = args.epochs
     device = ml.get_device(args.device)
-    print(f"=== BL portfolio pipeline | profile={profile} | device={device} ===")
+    print(f"=== BL portfolio pipeline | profile={profile} | epochs={cfg['epochs']} "
+          f"| jobs={args.jobs} | device={device} ===")
 
     # ---- M1: data ----
     print("\n[1/5] Data pipeline …")
@@ -86,9 +92,14 @@ def main() -> int:
     if results.empty:
         print("FATAL: backtest produced no periods — aborting."); return 1
 
-    # ---- M8: evaluation + report ----
+    # ---- M8: evaluation + report (markdown + PDF) ----
     print("\n[5/5] Evaluation & report …")
     ev.generate_report(results, sector_map, reb_dates, rf_annual=rf_annual)
+    try:
+        from src import report_pdf
+        report_pdf.build_pdf_report()
+    except Exception as e:  # noqa: BLE001 — PDF is a bonus, never fail the run for it
+        warnings.warn(f"[M8] PDF report skipped: {e}")
 
     _summary(results, rf_annual)
     _qa(results)

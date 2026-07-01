@@ -119,7 +119,18 @@ def predictions_for_date(tickers: list[str], reb_date, epochs: int,
     key = pd.Timestamp(reb_date).date().isoformat()
     path = os.path.join(C.PREDICTIONS_DIR, f"{key}.parquet")
     if os.path.exists(path) and not force:
-        return pd.read_parquet(path)
+        cached = pd.read_parquet(path)
+        # The cache is keyed by date only, so a cache built on a SMALLER universe
+        # (e.g. a prior --quick run) must not satisfy a larger one. Reuse only if
+        # the cache covers (almost) all requested tickers; a few legitimately
+        # untrainable stocks are tolerated, a wholesale universe change is not.
+        missing = set(tickers) - set(cached["ticker"])
+        if len(missing) <= max(5, int(0.05 * len(tickers))):
+            print(f"    [M3] {key}: loaded {len(cached)} cached predictions — "
+                  f"skip retrain.", flush=True)
+            return cached
+        print(f"[M7] predictions cache @ {key} covers {len(cached)} tickers but "
+              f"{len(tickers)} requested — recomputing.")
     preds = ml.predict_universe(tickers, reb_date, epochs=epochs,
                                 svr_C=svr_C, svr_eps=svr_eps, n_jobs=n_jobs)
     preds.to_parquet(path, index=False)
@@ -188,6 +199,8 @@ def run_backtest(tickers: list[str], sector_map: dict, epochs: int,
         next_reb = all_reb[i + 1] if i + 1 < len(all_reb) else pd.Timestamp(C.BACKTEST_END)
         period_return = compute_realized_return(new_holdings, reb, next_reb)
         portfolio_value *= (1 + period_return)
+        print(f"    [M7] {reb.date()} done: period return {period_return:+.2%}, "
+              f"cost {cost:.2%}, value {portfolio_value:.3f}", flush=True)
 
         realized.append({"date": reb, "period_end": next_reb,
                          "period_return": period_return,
