@@ -55,7 +55,24 @@ def test_selection():
     u = sel.select_universe(preds, smap)
     check("top-2 per sector", len(u) == 4)
     energy_top = u[(u.sector == "Energy") & (u.rank_in_sector == 1)].iloc[0]["ticker"]
-    check("highest r_hat ranked #1", energy_top == "A2", f"got {energy_top}")
+    check("highest r_hat ranked #1 (equal omega -> score order == r_hat order)",
+          energy_top == "A2", f"got {energy_top}")
+
+    # Risk-adjusted ranking (deviation from 04 §2 — see selection.py module docstring):
+    # X has the higher raw r_hat but is far noisier (high omega); Y has a smaller
+    # r_hat the model is confident about (low omega). score = r_hat/sqrt(omega)
+    # should flip the ranking versus plain r_hat.
+    preds_noisy = pd.DataFrame({
+        "ticker": ["X", "Y"],
+        "r_hat": [0.10, 0.06],
+        "omega": [1.00, 0.01],
+    })
+    smap2 = {"X": "Energy", "Y": "Energy"}
+    u2 = sel.select_universe(preds_noisy, smap2)
+    top_noisy = u2[u2.rank_in_sector == 1].iloc[0]["ticker"]
+    check("risk-adjusted ranking favours confident Y over noisy higher-r_hat X",
+          top_noisy == "Y", f"got {top_noisy}")
+
     turn = sel.compute_universe_turnover({"A2", "B1"}, {"A2", "B2"})
     check("turnover entered/exited", turn["entered"] == {"B2"} and turn["exited"] == {"B1"})
 

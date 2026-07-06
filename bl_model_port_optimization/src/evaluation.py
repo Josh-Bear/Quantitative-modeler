@@ -247,6 +247,77 @@ def _fmt(table: dict) -> str:
     return "\n".join(f"| {k} | {pct(k, v)} |" for k, v in table.items())
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Holdings by rebalance + period-by-period vs S&P 500 (Josh, 2026-07-02 request —
+# extends the 08 §7 report structure; not a spec-mandated section)
+# ─────────────────────────────────────────────────────────────────────────────
+def holdings_table() -> pd.DataFrame:
+    """Every holding at every rebalance: [date, ticker, weight, sector, r_hat,
+    rank_in_sector]. Reads `backtest_results/weights_history.parquet` (M7) and
+    enriches each date's rows from `universe/{date}.parquet` (M4) where present.
+    Sorted by date then weight descending. Empty DataFrame if no backtest has run."""
+    wpath = os.path.join(C.BACKTEST_DIR, "weights_history.parquet")
+    if not os.path.exists(wpath):
+        return pd.DataFrame()
+    w = pd.read_parquet(wpath)
+    w["date"] = pd.to_datetime(w["date"])
+
+    rows = []
+    for d, grp in w.groupby("date", sort=True):
+        key = d.date().isoformat()
+        upath = os.path.join(C.UNIVERSE_DIR, f"{key}.parquet")
+        if os.path.exists(upath):
+            extra = pd.read_parquet(upath)[["ticker", "sector", "r_hat", "rank_in_sector"]]
+            g = grp.merge(extra, on="ticker", how="left")
+        else:
+            g = grp.copy()
+        rows.append(g)
+    out = pd.concat(rows, ignore_index=True)
+    return out.sort_values(["date", "weight"], ascending=[True, False]).reset_index(drop=True)
+
+
+def period_comparison_table(results: pd.DataFrame, bench: pd.Series) -> pd.DataFrame:
+    """Strategy vs S&P 500 return for EVERY individual rebalance period (not just
+    the single aggregate row in the performance-comparison table) — same
+    (date, period_end) holding window per row, so each line is apples-to-apples.
+    `bench` is the Series from `benchmark_series()`, indexed by period start date."""
+    cols = ["date", "period_end", "period_return", "portfolio_value"]
+    r = results[[c for c in cols if c in results.columns]].copy()
+    r["date"] = pd.to_datetime(r["date"])
+    r["sp500_return"] = r["date"].map(bench)
+    r["sp500_value"] = (1 + r["sp500_return"].fillna(0.0)).cumprod()
+    r["active_return"] = r["period_return"] - r["sp500_return"]
+    return r[["date", "period_end", "period_return", "sp500_return",
+              "active_return", "portfolio_value", "sp500_value"]]
+
+
+def _holdings_md(holdings: pd.DataFrame, reb_date) -> str:
+    """Markdown table of every holding on one rebalance date."""
+    sub = holdings[holdings["date"] == pd.Timestamp(reb_date)]
+    if sub.empty:
+        return "_(no holdings recorded for this date)_\n"
+    lines = ["| Ticker | Sector | Weight | r_hat | Rank in sector |",
+             "|---|---|---|---|---|"]
+    for _, row in sub.iterrows():
+        sector = row["sector"] if pd.notna(row.get("sector")) else "-"
+        r_hat = f"{row['r_hat']:.2%}" if pd.notna(row.get("r_hat")) else "-"
+        rank = int(row["rank_in_sector"]) if pd.notna(row.get("rank_in_sector")) else "-"
+        lines.append(f"| {row['ticker']} | {sector} | {row['weight']:.2%} | {r_hat} | {rank} |")
+    return "\n".join(lines)
+
+
+def _period_cmp_md(period_cmp: pd.DataFrame) -> str:
+    """Markdown table: strategy vs S&P 500 return for every rebalance period."""
+    lines = ["| Rebalance | Period end | Strategy | S&P 500 (B&H) | Active |",
+             "|---|---|---|---|---|"]
+    for _, row in period_cmp.iterrows():
+        sp = f"{row['sp500_return']:.2%}" if pd.notna(row["sp500_return"]) else "n/a"
+        act = f"{row['active_return']:+.2%}" if pd.notna(row["active_return"]) else "n/a"
+        lines.append(f"| {row['date'].date()} | {row['period_end'].date()} | "
+                     f"{row['period_return']:+.2%} | {sp} | {act} |")
+    return "\n".join(lines)
+
+
 def generate_report(results: pd.DataFrame, sector_map: dict,
                     rebalance_dates: list, rf_annual: float = 0.0,
                     limitations: Optional[list[str]] = None) -> str:
@@ -279,6 +350,13 @@ def generate_report(results: pd.DataFrame, sector_map: dict,
         diag["ic_by_sector"].to_csv(os.path.join(tdir, "ic_by_sector.csv"), index=False)
     cov = crisis_coverage(rebalance_dates)
     cov.to_csv(os.path.join(tdir, "crisis_coverage.csv"), index=False)
+
+    # holdings by rebalance + period-by-period vs S&P 500 (Josh, 2026-07-02)
+    holdings = holdings_table()
+    if not holdings.empty:
+        holdings.to_csv(os.path.join(tdir, "holdings_by_rebalance.csv"), index=False)
+    period_cmp = period_comparison_table(results, bench)
+    period_cmp.to_csv(os.path.join(tdir, "period_comparison.csv"), index=False)
 
     # figures
     plot_cumulative(results, bench)
@@ -322,20 +400,39 @@ Strategy Sharpe {strat['Sharpe Ratio']:.3f} vs benchmark {bench_tbl['Sharpe Rati
         for k in strat
     ) + f"""
 
-## 5. ML quality diagnostics
+## 5. Holdings by rebalance
+Full holdings (ticker, sector, weight, r_hat, rank in sector) for every rebalance
+date are written to `tables/holdings_by_rebalance.csv`. First and last rebalance
+shown here as a sample:
+
+**{pd.Timestamp(rebalance_dates[0]).date()}**
+
+{_holdings_md(holdings, rebalance_dates[0]) if not holdings.empty else "_(no holdings recorded)_"}
+
+**{pd.Timestamp(rebalance_dates[-1]).date()}**
+
+{_holdings_md(holdings, rebalance_dates[-1]) if not holdings.empty else "_(no holdings recorded)_"}
+
+## 6. Period-by-period: strategy vs S&P 500
+Same holding window each row (not just the aggregate Section 4 comparison) — full
+table also written to `tables/period_comparison.csv`.
+
+{_period_cmp_md(period_cmp)}
+
+## 7. ML quality diagnostics
 - Mean Information Coefficient (rank corr, full universe): **{diag['mean_ic']:.4f}**
   (IC > 0.05 weakly predictive, > 0.1 good for cross-sectional equity — 08 §4.1)
 - Mean directional accuracy: **{diag['mean_directional_accuracy']:.2%}** (50% = random)
 
 IC and RMSE per sector are written to `tables/ic_by_sector.csv`.
 
-## 6. Turnover & cost
+## 8. Turnover & cost
 ![turnover](figures/turnover_over_time.png)
 
 Total transaction cost paid over the backtest:
 **{results['transaction_cost'].sum():.2%}** of portfolio value (cumulative drag).
 
-## 7. Limitations (explicit — 08 §7)
+## 9. Limitations (explicit — 08 §7)
 - **Survivorship bias**: current S&P 500 list applied retroactively (01 §5, 09 §1).
 - **Rolling-window crisis coverage**: see `tables/crisis_coverage.csv` — the 10-year
   window "forgets" crises (2008 GFC, 2020 COVID) as they age out.

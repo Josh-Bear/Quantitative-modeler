@@ -143,9 +143,11 @@ def _build_lstm():
         After training, call .encode(x) and ignore the head."""
 
         def __init__(self, input_size=C.N_FEATURES, hidden_size=C.LSTM_HIDDEN,
-                     num_layers=C.LSTM_LAYERS):
+                     num_layers=C.LSTM_LAYERS, dropout=C.LSTM_DROPOUT):
             super().__init__()
-            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+            # dropout is applied between LSTM layers; has no effect when num_layers=1
+            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True,
+                                dropout=dropout if num_layers > 1 else 0.0)
             self.head = nn.Linear(hidden_size, 1)
 
         def encode(self, x):
@@ -175,10 +177,12 @@ def train_lstm(X_train, y_train, X_val, y_val, epochs: int, device=None, seed: i
     bs = min(C.LSTM_BATCH, n)
 
     best_state, best_val = None, float("inf")
+    no_improve = 0
+    patience = C.LSTM_PATIENCE
     Xv = torch.as_tensor(X_val, device=device)
     yv = torch.as_tensor(y_val, device=device)
 
-    for _ in range(epochs):
+    for epoch in range(epochs):
         model.train()
         perm = torch.randperm(n, device=device)
         for i in range(0, n, bs):
@@ -187,12 +191,18 @@ def train_lstm(X_train, y_train, X_val, y_val, epochs: int, device=None, seed: i
             loss = loss_fn(model(Xt[idx]), yt[idx])
             loss.backward()
             opt.step()
-        # cheap early-stopping bookkeeping on val MSE
+        # early stopping on val MSE
         model.eval()
         with torch.no_grad():
             v = loss_fn(model(Xv), yv).item()
         if v < best_val:
-            best_val, best_state = v, {k: t.detach().clone() for k, t in model.state_dict().items()}
+            best_val = v
+            best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                break  # restore best below and exit
 
     if best_state is not None:
         model.load_state_dict(best_state)

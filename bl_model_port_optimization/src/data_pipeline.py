@@ -45,36 +45,57 @@ def to_yf(ticker: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Universe + sector map  (01 §3.1, §3.4)
 # ─────────────────────────────────────────────────────────────────────────────
-def fetch_sp500_table() -> Optional[pd.DataFrame]:
-    """Return the live Wikipedia S&P 500 constituents table, or None on failure.
+def fetch_index_table(url: str, min_rows: int = 50) -> Optional[pd.DataFrame]:
+    """Fetch a Wikipedia index-constituents table and normalise it to
+    [ticker, gics_sector], or None on failure.
 
-    Uses requests with a browser User-Agent (the default agent gets a 403),
-    mirroring qqq_screener/universe.py.
+    Generalised (not hardcoded to table index 0) because the S&P 500 and S&P 100
+    Wikipedia pages don't share a layout: the S&P 100 page has an infobox and a
+    price-snapshot table ahead of the constituents table, and uses a plain
+    "Sector" column where the S&P 500 page uses "GICS Sector". Search every table
+    on the page for one with a Symbol + Sector-like column and >= min_rows rows,
+    rather than assume a fixed position. Uses requests with a browser User-Agent
+    (the default agent gets a 403), mirroring qqq_screener/universe.py.
     """
     try:
         import io
-        resp = requests.get(C.WIKI_SP500_URL, headers=_HEADERS, timeout=20)
+        resp = requests.get(url, headers=_HEADERS, timeout=20)
         resp.raise_for_status()
         # pandas >=2.1 treats a bare string as a path/URL — wrap HTML in StringIO.
         tables = pd.read_html(io.StringIO(resp.text))
-        df = tables[0]
-        df["Symbol"] = df["Symbol"].astype(str).map(to_yf)
-        return df[["Symbol", "GICS Sector"]].rename(
-            columns={"Symbol": "ticker", "GICS Sector": "gics_sector"})
+        for df in tables:
+            col_by_lower = {str(c).strip().lower(): c for c in df.columns}
+            sym_col = col_by_lower.get("symbol")
+            sec_col = col_by_lower.get("gics sector") or col_by_lower.get("sector")
+            if sym_col is None or sec_col is None or len(df) < min_rows:
+                continue
+            out = df[[sym_col, sec_col]].rename(
+                columns={sym_col: "ticker", sec_col: "gics_sector"})
+            out["ticker"] = out["ticker"].astype(str).map(to_yf)
+            return out.dropna(subset=["ticker"]).drop_duplicates("ticker").reset_index(drop=True)
+        warnings.warn(f"[M1] no constituents table found at {url} "
+                      f"(looked for a Symbol+Sector column with >= {min_rows} rows).")
+        return None
     except Exception as e:  # noqa: BLE001 — never crash the pipeline on a fetch
-        warnings.warn(f"[M1] Wikipedia S&P 500 fetch failed: {e}")
+        warnings.warn(f"[M1] Wikipedia index fetch failed ({url}): {e}")
         return None
 
 
 def get_universe(universe: Optional[list[str]] = None) -> tuple[list[str], dict]:
     """Resolve (tickers, sector_map) for the run.
 
-    universe=None  → full live S&P 500 list + sector map from Wikipedia.
+    universe=None  → live S&P 100 list + sector map from Wikipedia. DEVIATION from
+                     00 §4 ("S&P 500, ~500 stocks") — the live/`--full` universe
+                     was narrowed from S&P 500 to S&P 100, approved by Josh
+                     2026-07-02 after a real --full (S&P 500) run took 15-20+
+                     hours and had to be interrupted; see constants.py and
+                     bl_spec/09_OPEN_DECISIONS.md §11. Dev profiles (quick/default)
+                     are unaffected — they already pass a fixed small `universe`.
     universe=[...] → that fixed list (a dev profile); sectors resolved from the
                      Wikipedia table where present, else the inline fallback map,
                      else yfinance .info['sector'].
     """
-    table = fetch_sp500_table()
+    table = fetch_index_table(C.WIKI_SP100_URL, min_rows=50)
     wiki_map = dict(zip(table["ticker"], table["gics_sector"])) if table is not None else {}
 
     if universe is None:

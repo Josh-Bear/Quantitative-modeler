@@ -61,11 +61,13 @@ WARMUP_DROP = 50
 # ─────────────────────────────────────────────────────────────────────────────
 # LSTM  (spec 03 §3.1) — feature extractor, Option A (09 §5)
 # ─────────────────────────────────────────────────────────────────────────────
-LSTM_HIDDEN = 32                 # hidden state size (= SVR input dim)
-LSTM_LAYERS = 1
-LSTM_LR = 1e-3
-LSTM_BATCH = 64
-LSTM_EPOCHS = 60                 # default profile; overridden per run profile
+LSTM_HIDDEN = 64                 # hidden state size (= SVR input dim)
+LSTM_LAYERS = 4
+LSTM_DROPOUT = 0.4               # dropout between LSTM layers (ignored if LSTM_LAYERS=1)
+LSTM_LR = 0.005
+LSTM_BATCH = 32
+LSTM_EPOCHS = 600                # default profile; overridden per run profile
+LSTM_PATIENCE = 30               # early stopping: stop if val MSE doesn't improve for N epochs
 VAL_FRACTION = 0.20              # chronological last-20% validation split (03 §2)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,6 +134,14 @@ BENCHMARK = "^GSPC"              # S&P 500 index for the buy-&-hold benchmark (0
 DOWNLOAD_CHUNK = 50              # tickers per yfinance bulk call (01 §3.2)
 RATE_LIMIT_SLEEP = 0.5           # seconds between yfinance .info calls (be polite)
 WIKI_SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+
+# DEVIATION from 00 §4 ("Universe (ML training): S&P 500, ~500 stocks"), approved
+# by Josh 2026-07-02 after reviewing an actual --full run: 500 stocks × 26
+# quarterly rebalances took 15-20+ hours (nohup.out shows a manual Ctrl-C at
+# rebalance 15/26) and the live universe used by `--full` was replaced with the
+# S&P 100 wholesale rather than left as S&P 500 — not a silent change, see
+# CLAUDE.md "Key design decisions" and bl_spec/09_OPEN_DECISIONS.md §11.
+WIKI_SP100_URL = "https://en.wikipedia.org/wiki/S%26P_100"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -223,8 +233,9 @@ DEFAULT_UNIVERSE = QUICK_UNIVERSE + [
 def resolve_profile(profile: str = "default") -> dict:
     """Map a CLI profile name to a concrete run config.
 
-    'full' = the locked spec scope (live S&P 500 universe, full quarterly
-    schedule, full epochs). 'quick'/'default' shrink universe, rebalance count
+    'full' = live S&P 100 universe (narrowed from the spec's S&P 500 — see
+    get_universe()'s docstring and 09_OPEN_DECISIONS.md §11), full quarterly
+    schedule, full epochs. 'quick'/'default' shrink universe, rebalance count
     and epochs for development (07 §5).
     """
     if profile == "quick":
@@ -236,7 +247,7 @@ def resolve_profile(profile: str = "default") -> dict:
         }
     if profile == "full":
         return {
-            "universe": None,           # None → live S&P 500 list from Wikipedia
+            "universe": None,           # None → live S&P 100 list from Wikipedia
             "epochs": 100,
             "max_rebalances": None,     # full quarterly schedule
             "tune_svr": True,

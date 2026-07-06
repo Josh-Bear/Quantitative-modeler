@@ -7,7 +7,8 @@ run.py — orchestrate the ML-driven Black-Litterman portfolio pipeline end to e
 Profiles (07 §5 — dev convenience, not a change to the locked design):
     python run.py --quick     # 22 stocks, 2 rebalances, 5 epochs  (smoke test)
     python run.py             # ~44 stocks, 4 rebalances, 30 epochs (default)
-    python run.py --full      # live S&P 500, full quarterly schedule, 100 epochs (slow)
+    python run.py --full      # live S&P 100 (see 09_OPEN_DECISIONS.md §11), full
+                               # quarterly schedule, 100 epochs (slow, still hours)
     python run.py --jobs 8    # fan out per-stock training across 8 CPU workers
     python test.py            # network-free core sanity checks
 """

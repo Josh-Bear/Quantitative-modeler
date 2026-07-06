@@ -5,11 +5,12 @@ Guidance for Claude Code when working in `bl_model_port_optimization/`.
 ## What this is
 
 An ML-driven **Black-Litterman portfolio optimiser with a walk-forward backtest**.
-A per-stock LSTM→SVR forecasts 63-day forward returns over the S&P 500, the top-2
-stocks per GICS sector form a dynamic 22-stock universe, Black-Litterman turns the
-forecasts into a posterior μ_BL (11 absolute + 11 relative views), mean-variance
-optimisation picks the Max-Sharpe portfolio, and the whole thing is backtested
-quarterly vs S&P 500 buy-&-hold.
+A per-stock LSTM→SVR forecasts 63-day forward returns over the training universe
+(S&P 100 live, `--full` — see deviations below), the top-2 stocks per GICS sector
+by a **risk-adjusted score** form a dynamic 22-stock universe, Black-Litterman
+turns the forecasts into a posterior μ_BL (11 absolute + 11 relative views),
+mean-variance optimisation picks the Max-Sharpe portfolio, and the whole thing is
+backtested quarterly vs S&P 500 buy-&-hold.
 
 The full design spec lives in `bl_spec/` (`00_OVERVIEW.md` … `09_OPEN_DECISIONS.md`).
 **Read the spec before changing behaviour.** `00 §4` is the locked-decision table
@@ -22,7 +23,7 @@ each default is referenced in code as `# 09 §N`.
 pip install -r requirements.txt          # incl. TA-Lib (brew install ta-lib first)
 python run.py --quick                     # smoke: 22 stocks, 2 rebalances, 5 epochs
 python run.py                             # default: ~44 stocks, 4 rebalances, 30 epochs
-python run.py --full                      # live S&P 500, full quarterly schedule (slow)
+python run.py --full                      # live S&P 100, full quarterly schedule (slow — see 09 §11)
 python run.py --jobs 8                     # fan per-stock training across CPU workers
 python test.py                            # network-free core checks (BL / opt / metrics)
 ```
@@ -42,10 +43,10 @@ absent (it previously degraded to a silent per-ticker mass-skip).
 ```
 run.py                  # orchestrate M1→M8; profiles; summary + QA
 src/constants.py        # ALL config — locked decisions (00 §4) + 09 defaults; resolve_profile()
-src/data_pipeline.py    # M1: S&P500 list (Wikipedia), yfinance OHLCV→parquet, mcap A→B, sector map, QA
+src/data_pipeline.py    # M1: S&P100 live list (Wikipedia, 09 §11), yfinance OHLCV→parquet, mcap A→B, sector map, QA
 src/features.py         # M2: 8 indicators (pure pandas/numpy + TA-Lib Hilbert only); raw, warm-up dropped
 src/ml_model.py         # M3: per-stock LSTM extractor (Option A) → SVR; ω from val residuals; walk-forward
-src/selection.py        # M4: top-2/sector → 22-stock universe; turnover
+src/selection.py        # M4: top-2/sector by risk-adjusted score (09 §11) → 22-stock universe; turnover
 src/black_litterman.py  # M5: Σ(×63) → P,Q (block) → Ω (two scales) → Π → μ_BL
 src/optimization.py     # M6: efficient frontier + Max-Sharpe (long-only); closed-form sanity check
 src/backtest.py         # M7: quarterly walk-forward loop, costs, caching, risk-free; calls M3-M6
@@ -87,6 +88,19 @@ Data/outputs land under `data/` (raw prices, features, reference) and `output/`
 - **Skip-and-continue**: any ticker that fails to fetch / lacks history / blows up
   in training is dropped with a warning; OOM is re-raised so callers can react.
   Per-date M3 predictions are cached to `output/predictions/{date}.parquet`.
+- **DEVIATIONS from the locked spec (00 §4), approved by Josh 2026-07-02, see
+  `bl_spec/09_OPEN_DECISIONS.md` §11 — not silent changes:**
+  - `--full`'s live universe is **S&P 100**, not S&P 500 (`data_pipeline.get_universe`,
+    `constants.WIKI_SP100_URL`). A real S&P-500 `--full` run took 15-20+ hours and
+    had to be interrupted mid-backtest (see `nohup.out`/`full_run.log` in this
+    directory) — not tractable to iterate on.
+  - M4 selection ranks by a **risk-adjusted score** `r_hat / sqrt(omega)`
+    (`selection.OMEGA_FLOOR`), not raw `r_hat` (spec 04 §2). Motivation: this
+    project's own ML diagnostics showed mean IC ≈ 0.086 (spec's own "weakly
+    predictive" threshold, 08 §4.1) — ranking noisy point-estimates by raw r_hat
+    and cutting exactly at rank 2 lets estimation noise decide sector membership.
+    Q (the view return fed to Black-Litterman in M5) is still the raw `r_hat` —
+    only the *selection* criterion changed.
 
 ## Caveats to keep stating
 
