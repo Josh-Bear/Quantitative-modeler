@@ -1,235 +1,188 @@
+
+# pyrefly: ignore [parse-error]
 import numpy as np
-import pandas as pd
 
-np.set_printoptions(precision=4, suppress=True)
 
-# ══════════════════════════════════════════════════════
-# MOCK DATA — ใช้ข้อมูลสมมติ (เพราะ yfinance ใช้ไม่ได้)
-# ในชีวิตจริงแทนด้วย yf.download(tickers, interval="1mo")
-# ══════════════════════════════════════════════════════
+class ViewBuilder:
+    def __init__(self, asset_names):
+        """
+        asset_names: list ของชื่อ/ticker หุ้นทั้งหมดใน universe
+                     (จำนวนเท่าไหร่ก็ได้ ตาม user กรอก)
+        """
+        self.assets = list(asset_names)
+        self.n = len(self.assets)
+        self._idx = {name: i for i, name in enumerate(self.assets)}
+        self.views = []  # เก็บ view แต่ละอันเป็น dict
 
-np.random.seed(42)
+    # ---------- เพิ่ม Absolute View ----------
+    def add_absolute_view(self, asset, expected_return, confidence=None):
+        """
+        asset: ชื่อหุ้นหนึ่งตัว
+        expected_return: ผลตอบแทนที่คาด (เช่น 0.08 = 8%)
+        confidence: 0-1 (ความมั่นใจ, optional ถ้าจะใช้ He-Litterman แทน)
+        """
+        row = np.zeros(self.n)
+        row[self._idx[asset]] = 1.0
+        self.views.append({
+            "type": "absolute",
+            "P_row": row,
+            "Q": expected_return,
+            "confidence": confidence,
+        })
 
-TICKERS = ["NVDA", "AAPL", "MSFT", "GOOGL"]
-N = len(TICKERS)
-T_TOTAL = 60  # 5 ปี รายเดือน
+    # ---------- เพิ่ม Relative View ----------
+    def add_relative_view(self, outperform, underperform, expected_diff,
+                           weight_scheme="equal", market_caps=None,
+                           confidence=None):
+        """
+        outperform: list ของหุ้นฝั่งที่คาดว่าจะดีกว่า (1 ตัวหรือหลายตัวก็ได้)
+        underperform: list ของหุ้นฝั่งที่คาดว่าจะแย่กว่า
+        expected_diff: ส่วนต่างผลตอบแทนที่คาด (outperform - underperform)
+        weight_scheme: "equal" หรือ "cap_weighted"
+        market_caps: dict {asset: market_cap} จำเป็นถ้าใช้ cap_weighted
+        confidence: 0-1
+        """
+        row = np.zeros(self.n)
 
-# สร้าง returns สมมติที่สมเหตุสมผล
-# NVDA: return สูง vol สูง | AAPL/MSFT/GOOGL: return ปานกลาง
-true_means   = np.array([0.025, 0.012, 0.010, 0.015])  # monthly
-true_vol     = np.array([0.120, 0.065, 0.070, 0.085])  # monthly vol
-corr = np.array([
-    [1.00, 0.45, 0.42, 0.48],
-    [0.45, 1.00, 0.75, 0.70],
-    [0.42, 0.75, 1.00, 0.68],
-    [0.48, 0.70, 0.68, 1.00],
-])
-cov_monthly = np.diag(true_vol) @ corr @ np.diag(true_vol)
+        def _weights(group):
+            if weight_scheme == "equal":
+                w = 1.0 / len(group)
+                return {a: w for a in group}
+            elif weight_scheme == "cap_weighted":
+                total = sum(market_caps[a] for a in group)
+                return {a: market_caps[a] / total for a in group}
+            else:
+                raise ValueError("weight_scheme ต้องเป็น 'equal' หรือ 'cap_weighted'")
 
-# simulate returns
-returns_all = np.random.multivariate_normal(true_means, cov_monthly, T_TOTAL)
-# shape: (60, 4) — 60 เดือน, 4 หุ้น
+        for asset, w in _weights(outperform).items():
+            row[self._idx[asset]] += w
+        for asset, w in _weights(underperform).items():
+            row[self._idx[asset]] -= w
 
-# ── Train / Test Split ────────────────────────────────
-TRAIN_END = 36   # 3 ปีแรก = train
-# Test = ปีที่ 4–5
+        self.views.append({
+            "type": "relative",
+            "P_row": row,
+            "Q": expected_diff,
+            "confidence": confidence,
+        })
 
-returns_train = returns_all[:TRAIN_END]   # (36, 4)
-returns_test  = returns_all[TRAIN_END:]   # (24, 4)
+    # ---------- Helper: สร้าง Q จากสัญญาณเชิงปริมาณ ----------
+    @staticmethod
+    def implied_return_from_target_price(current_price, target_price):
+        """แปลง analyst target price เป็น absolute view return"""
+        return target_price / current_price - 1.0
 
-print("=" * 60)
-print("  BL COMPARISON: 3 แบบ w_mkt")
-print(f"  Train: {TRAIN_END} เดือน | Test: {T_TOTAL-TRAIN_END} เดือน")
-print("=" * 60)
+    @staticmethod
+    def momentum_signal(price_series, lookback=252):
+        """คืนค่า trailing return ใช้เป็น proxy ของ view return"""
+        prices = np.asarray(price_series)
+        return prices[-1] / prices[-lookback] - 1.0
 
-# ══════════════════════════════════════════════════════
-# MATH UTILITIES
-# ══════════════════════════════════════════════════════
+    @staticmethod
+    def valuation_gap(current_multiple, historical_avg_multiple):
+        """ส่วนต่าง valuation เทียบค่าเฉลี่ยย้อนหลัง แปลงเป็น expected mean-reversion return"""
+        return historical_avg_multiple / current_multiple - 1.0
 
-def compute_cov(returns):
-    """Sample covariance matrix"""
-    return np.cov(returns.T)  # (N, N)
+    # ---------- Build P, Q, Omega ----------
+    def build(self, tau, sigma, omega_method="he_litterman"):
+        """
+        tau: scalar (มักตั้ง 0.025-0.05)
+        sigma: covariance matrix ของผลตอบแทน (n x n) ตามลำดับ self.assets
+        omega_method: "he_litterman" | "idzorek" | "manual"
 
-def mat_inv(A):
-    return np.linalg.inv(A)
+        คืนค่า P (k x n), Q (k,), Omega (k x k)
+        """
+        if not self.views:
+            raise ValueError("ยังไม่มี view ที่เพิ่มเข้ามาเลย")
 
-def run_bl(sigma, w_mkt, delta, tau, P=None, Q=None, Omega=None):
-    """BL model — return mu_bl, w_star"""
-    Pi = delta * sigma @ w_mkt
+        P = np.vstack([v["P_row"] for v in self.views])
+        Q = np.array([v["Q"] for v in self.views])
+        sigma = np.asarray(sigma)
 
-    if P is None:
-        # ไม่มี views — w* = w_mkt
-        return Pi, w_mkt.copy()
+        if omega_method == "he_litterman":
+            # Omega_ii = tau * (P_i Sigma P_i^T) -- ผูกกับ variance ของ view นั้นเอง
+            omega_diag = np.array([
+                tau * (P[i] @ sigma @ P[i].T) for i in range(len(self.views))
+            ])
 
-    tau_sig_inv = mat_inv(tau * sigma)
-    omega_inv   = mat_inv(Omega)
+        elif omega_method == "idzorek":
+            # ต้องมี confidence (0-1) ครบทุก view
+            confidences = [v["confidence"] for v in self.views]
+            if any(c is None for c in confidences):
+                raise ValueError("ทุก view ต้องมี confidence (0-1) เมื่อใช้ omega_method='idzorek'")
+            omega_diag = np.zeros(len(self.views))
+            for i, c in enumerate(confidences):
+                # variance เต็มที่ (confidence ต่ำสุด) จาก he-litterman baseline
+                base_var = tau * (P[i] @ sigma @ P[i].T)
+                c = np.clip(c, 1e-4, 1.0)  # กัน div-by-zero
+                # confidence สูง -> variance ต่ำ (ใกล้ 0), confidence ต่ำ -> variance สูง
+                omega_diag[i] = base_var * (1.0 / c - 1.0) if c < 1.0 else 1e-8
 
-    M    = mat_inv(tau_sig_inv + P.T @ omega_inv @ P)
-    rhs  = tau_sig_inv @ Pi + P.T @ omega_inv @ Q
-    mu_bl = M @ rhs
+        elif omega_method == "manual":
+            confidences = [v["confidence"] for v in self.views]
+            if any(c is None for c in confidences):
+                raise ValueError("ทุก view ต้องมี confidence เมื่อใช้ omega_method='manual'")
+            # ตีความ confidence เป็น 1/variance โดยตรง (normalize เอง)
+            omega_diag = np.array([
+                (1.0 - c) * (P[i] @ sigma @ P[i].T) + 1e-8
+                for i, c in enumerate(confidences)
+            ])
 
-    sigma_bl = sigma + M
-    w_raw    = mat_inv(delta * sigma_bl) @ mu_bl
+        else:
+            raise ValueError("omega_method ต้องเป็น 'he_litterman', 'idzorek' หรือ 'manual'")
 
-    # Long-only + normalize
-    w_raw = np.maximum(w_raw, 0)
-    w_sum = w_raw.sum()
-    if w_sum < 1e-8:
-        return mu_bl, w_mkt.copy()
-    return mu_bl, w_raw / w_sum
+        Omega = np.diag(omega_diag)
+        return P, Q, Omega
 
-def portfolio_metrics(weights, returns_test, rf_monthly=0.004):
-    """คำนวณ Sharpe, Return, Vol จาก test set"""
-    port_returns = returns_test @ weights          # (T_test,)
-    mean_r  = port_returns.mean()
-    std_r   = port_returns.std()
-    sharpe  = (mean_r - rf_monthly) / std_r * np.sqrt(12)  # annualized
-    ann_ret = (1 + mean_r) ** 12 - 1
-    ann_vol = std_r * np.sqrt(12)
-    return ann_ret, ann_vol, sharpe
+    def summary(self):
+        """แสดงสรุป views ทั้งหมดแบบอ่านง่าย"""
+        lines = []
+        for i, v in enumerate(self.views):
+            involved = [
+                f"{self.assets[j]}({v['P_row'][j]:+.2f})"
+                for j in range(self.n) if v["P_row"][j] != 0
+            ]
+            lines.append(
+                f"View {i+1} [{v['type']}]: {', '.join(involved)}  "
+                f"Q={v['Q']:.4f}  conf={v['confidence']}"
+            )
+        return "\n".join(lines)
 
-# ══════════════════════════════════════════════════════
-# คำนวณ Σ จาก train set
-# ══════════════════════════════════════════════════════
 
-sigma = compute_cov(returns_train)
-delta = 3.0
-tau   = 0.05
+# ---------------- ตัวอย่างการใช้งาน ----------------
+if __name__ == "__main__":
+    # สมมติ user กรอกหุ้นมา 5 ตัว (จำนวนเท่าไหร่ก็ได้)
+    assets = ["AAPL", "MSFT", "GOOG", "AMZN", "META"]
+    n = len(assets)
 
-# ══════════════════════════════════════════════════════
-# 3 แบบของ w_mkt
-# ══════════════════════════════════════════════════════
+    # covariance matrix ตัวอย่าง (จริงๆ ควรคำนวณจาก historical returns)
+    np.random.seed(0)
+    rand = np.random.randn(n, n)
+    sigma = rand @ rand.T * 0.01  # ทำให้เป็น positive semi-definite
 
-# สมมติ Market Cap (ล้านล้าน USD)
-market_caps = np.array([5.10, 3.20, 2.81, 4.44])
+    builder = ViewBuilder(assets)
 
-# แบบที่ 1: Market Cap Weighted
-w_mkt_cap = market_caps / market_caps.sum()
+    # Absolute view: AAPL จะให้ผลตอบแทน 8% มั่นใจ 60%
+    builder.add_absolute_view("AAPL", expected_return=0.08, confidence=0.6)
 
-# แบบที่ 2: Equal Weighted
-w_mkt_equal = np.ones(N) / N
+    # Relative view: MSFT จะดีกว่า GOOG อยู่ 3% มั่นใจ 50%
+    builder.add_relative_view(
+        outperform=["MSFT"], underperform=["GOOG"],
+        expected_diff=0.03, confidence=0.5
+    )
 
-# แบบที่ 3: Volatility Weighted (inverse vol)
-train_vols = returns_train.std(axis=0)
-inv_vol    = 1.0 / train_vols
-w_mkt_vol  = inv_vol / inv_vol.sum()
+    # Relative view แบบ basket: (AMZN+META) ดีกว่า (AAPL) เฉลี่ย cap-weighted
+    builder.add_relative_view(
+        outperform=["AMZN", "META"], underperform=["AAPL"],
+        expected_diff=0.02, weight_scheme="cap_weighted",
+        market_caps={"AMZN": 1800, "META": 1200, "AAPL": 3000},
+        confidence=0.4
+    )
 
-print("\n📌 w_mkt แต่ละแบบ")
-print("-" * 55)
-print(f"{'Ticker':<10}", end="")
-for t in TICKERS:
-    print(f"{t:>10}", end="")
-print()
-print(f"{'Market Cap':<10}", end="")
-for w in w_mkt_cap:
-    print(f"{w:>10.1%}", end="")
-print()
-print(f"{'Equal':<10}", end="")
-for w in w_mkt_equal:
-    print(f"{w:>10.1%}", end="")
-print()
-print(f"{'Vol Inv':<10}", end="")
-for w in w_mkt_vol:
-    print(f"{w:>10.1%}", end="")
-print()
-
-# ══════════════════════════════════════════════════════
-# Views (เหมือนกันทุกแบบ เพื่อให้เปรียบยุติธรรม)
-# ══════════════════════════════════════════════════════
-# View 1: NVDA จะ outperform MSFT ด้วย 5% ต่อปี
-# View 2: GOOGL จะได้ผลตอบแทน 18% ต่อปี
-
-P = np.array([
-    [ 1,  0, -1,  0],   # NVDA > MSFT
-    [ 0,  0,  0,  1],   # GOOGL absolute
-])
-Q = np.array([0.05/12, 0.18/12])  # monthly
-Omega = np.diag([0.001, 0.0005])
-
-# ══════════════════════════════════════════════════════
-# รัน BL ทั้ง 3 แบบ
-# ══════════════════════════════════════════════════════
-
-configs = [
-    ("Market Cap", w_mkt_cap),
-    ("Equal",      w_mkt_equal),
-    ("Vol Inv",    w_mkt_vol),
-]
-
-results = {}
-
-print("\n📌 Implied Returns Π (annualized)")
-print("-" * 55)
-print(f"{'':15}", end="")
-for t in TICKERS:
-    print(f"{t:>10}", end="")
-print()
-
-for name, w_mkt in configs:
-    Pi = delta * sigma @ w_mkt
-    print(f"{name:<15}", end="")
-    for p in Pi:
-        print(f"{p*12:>10.1%}", end="")   # annualize
+    print(builder.summary())
     print()
 
-print("\n📌 Optimal Weights w* (หลัง BL + Views)")
-print("-" * 55)
-print(f"{'':15}", end="")
-for t in TICKERS:
-    print(f"{t:>10}", end="")
-print()
-
-for name, w_mkt in configs:
-    mu_bl, w_star = run_bl(sigma, w_mkt, delta, tau, P, Q, Omega)
-    results[name] = w_star
-    print(f"{name:<15}", end="")
-    for w in w_star:
-        print(f"{w:>10.1%}", end="")
-    print()
-
-# ══════════════════════════════════════════════════════
-# TEST SET PERFORMANCE
-# ══════════════════════════════════════════════════════
-
-print("\n📌 TEST SET PERFORMANCE (ปีที่ 4–5)")
-print("-" * 55)
-print(f"{'Strategy':<15} {'Ann.Return':>12} {'Ann.Vol':>10} {'Sharpe':>10}")
-print("  " + "-" * 48)
-
-# Benchmark: ถือ Market Cap weighted โดยไม่มี BL
-_, w_bench = run_bl(sigma, w_mkt_cap, delta, tau)  # no views
-r, v, s = portfolio_metrics(w_bench, returns_test)
-print(f"{'Benchmark':15} {r:>12.2%} {v:>10.2%} {s:>10.2f}  (w_mkt no views)")
-
-for name, w_star in results.items():
-    r, v, s = portfolio_metrics(w_star, returns_test)
-    print(f"{name:<15} {r:>12.2%} {v:>10.2%} {s:>10.2f}")
-
-# ══════════════════════════════════════════════════════
-# SENSITIVITY: Views มีผลมากแค่ไหนเทียบกับ w_mkt?
-# ══════════════════════════════════════════════════════
-
-print("\n📌 SENSITIVITY — Views vs w_mkt")
-print("   ถ้าเอา Views ออก w* เปลี่ยนมากแค่ไหน?")
-print("-" * 55)
-
-for name, w_mkt in configs:
-    _, w_with_views    = run_bl(sigma, w_mkt, delta, tau, P, Q, Omega)
-    _, w_without_views = run_bl(sigma, w_mkt, delta, tau)
-    diff = np.abs(w_with_views - w_without_views).max()
-    print(f"  {name:<15} max weight change: {diff:.1%}")
-
-# ══════════════════════════════════════════════════════
-# สรุป
-# ══════════════════════════════════════════════════════
-
-print("\n" + "=" * 60)
-print("  KEY TAKEAWAYS")
-print("=" * 60)
-print("""
-  1. Π ต่างกันตาม w_mkt — แต่ Views ดึง w* ให้ใกล้กัน
-  2. Views มีผลต่อ w* มากกว่าการเลือก w_mkt
-  3. Test set นี้ใช้ data สมมติ — ในชีวิตจริงแทนด้วย
-     yf.download(tickers, period='5y', interval='1mo')
-  4. ไม่มีแบบไหน 'ดีที่สุดเสมอ' — ขึ้นกับ period ที่ test
-""")
+    P, Q, Omega = builder.build(tau=0.05, sigma=sigma, omega_method="idzorek")
+    print("P =\n", P)
+    print("Q =", Q)
+    print("Omega =\n", Omega)
