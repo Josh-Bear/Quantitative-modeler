@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 env/
+zzz.py/
 
 # OS
 .DS_Store

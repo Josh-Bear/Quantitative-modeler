@@ -112,6 +112,16 @@ def run_backtest(stock_data: dict, views: dict, w_mkt: np.ndarray,
             bench_rets.append(float(bench.loc[t_next] / bench.loc[t] - 1.0))
 
     ppy = ANN  # rebalances per year
+
+    # ── equity curves (normalised to 1.0 at start of test window) ────────────
+    start_date = grid[0]
+    step_dates  = [grid[j + 1] for j in range(len(strat_rets))]
+    all_dates   = pd.DatetimeIndex([start_date] + step_dates)
+    strat_equity = pd.Series(
+        np.concatenate([[1.0], np.cumprod(1 + np.array(strat_rets))]),
+        index=all_dates,
+    )
+
     out = {
         "ok": True,
         "n_rebalances": len(strat_rets),
@@ -120,5 +130,7 @@ def run_backtest(stock_data: dict, views: dict, w_mkt: np.ndarray,
         "strategy": _metrics(np.array(strat_rets), ppy),
         "benchmark": _metrics(np.array(bench_rets), ppy) if bench_rets else None,
         "last_weights": dict(zip(tickers, weight_log[-1][1].tolist())) if weight_log else {},
+        "strategy_equity": strat_equity,          # pd.Series, starts at 1.0
+        "test_start_date": start_date,            # for aligning other series
     }
     return out

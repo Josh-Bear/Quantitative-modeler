@@ -67,9 +67,11 @@ class LSTMRegressor(nn.Module):
 
 def _train_one(X, Y, Xval, Yval, *, epochs, lr, batch, device, ticker="",
                log_every=C.LOG_EVERY, patience=C.EARLY_STOP_PATIENCE,
-               lr_plateau_patience=C.LR_PLATEAU_PATIENCE):
+               lr_plateau_patience=C.LR_PLATEAU_PATIENCE,
+               hidden=C.LSTM_HIDDEN, dropout=C.LSTM_DROPOUT):
     """Train one multi-output model with val-driven early stopping + LR plateau."""
-    model = LSTMRegressor(n_features=X.shape[2], output_size=Y.shape[1]).to(device)
+    model = LSTMRegressor(n_features=X.shape[2], output_size=Y.shape[1],
+                          hidden=hidden, dropout=dropout).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     sched = ReduceLROnPlateau(opt, factor=C.LR_PLATEAU_FACTOR, patience=lr_plateau_patience)
     loss_fn = nn.MSELoss()
@@ -130,8 +132,9 @@ def predict_indicators(model: LSTMRegressor, X: np.ndarray) -> np.ndarray:
 
 
 def train_stock_model(sd: StockData, *, epochs: int = C.LSTM_EPOCHS, lr: float = C.LSTM_LR,
-                      batch: int = C.LSTM_BATCH, device: torch.device | None = None,
-                      seed: int = 42) -> dict:
+                      batch: int = C.LSTM_BATCH, hidden: int = C.LSTM_HIDDEN,
+                      dropout: float = C.LSTM_DROPOUT,
+                      device: torch.device | None = None, seed: int = 42) -> dict:
     """Train the single multi-output LSTM for one stock and score it on the test split."""
     device = device or get_device()
     torch.manual_seed(seed)
@@ -143,7 +146,8 @@ def train_stock_model(sd: StockData, *, epochs: int = C.LSTM_EPOCHS, lr: float =
     Xte, Yte = w["X"][te], w["Y"][te]
 
     model, val_mse = _train_one(Xtr, Ytr, Xva, Yva, epochs=epochs, lr=lr,
-                                batch=batch, device=device, ticker=sd.ticker)
+                                batch=batch, hidden=hidden, dropout=dropout,
+                                device=device, ticker=sd.ticker)
     model.to("cpu")          # park on CPU to free GPU memory
     _empty_cache(device)
 

@@ -26,7 +26,7 @@ import os
 import socketserver
 import traceback
 
-PORT = 8770
+PORT = int(os.environ.get("PORT", 8770))
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PERIOD = "3y"
 
@@ -188,6 +188,13 @@ if __name__ == "__main__":
         print("    Run: pip3 install yfinance\n")
         sys.exit(1)
 
+    port_arg = PORT
+    if len(sys.argv) > 1:
+        try:
+            port_arg = int(sys.argv[1])
+        except ValueError:
+            print(f"Invalid port: {sys.argv[1]}. Using default {PORT}.")
+
     class ReusableTCPServer(socketserver.TCPServer):
         allow_reuse_address = True
         def server_bind(self):
@@ -199,10 +206,10 @@ if __name__ == "__main__":
                 pass  # SO_REUSEPORT not available on all platforms
             super().server_bind()
 
-    with ReusableTCPServer(("", PORT), BLHandler) as httpd:
+    with ReusableTCPServer(("", port_arg), BLHandler) as httpd:
         print(f'\n{"="*55}')
         print("  🚀  Black-Litterman Optimizer running")
-        print(f"  🌐  http://localhost:{PORT}/")
+        print(f"  🌐  http://localhost:{port_arg}/")
         print("  📡  Data: /api/data?tickers=AAPL,MSFT,GOOGL")
         print(f'  {"─"*49}')
         print("  Press Ctrl+C to stop")
