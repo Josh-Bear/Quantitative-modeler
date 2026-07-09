@@ -34,3 +34,8 @@ Thumbs.db
 # Secrets / local env overrides (keep .env.example checked in as the template)
 .env
 !.env.example
+
+# Generated outputs — reproducible from scripts, no need to track
+**/output/
+**/cache/
+**/*.parquet

@@ -1,7 +1,0 @@
-{
-  "learning_rate": 0.001,
-  "batch_size": 32,
-  "hidden_size": 128,
-  "dropout": 0.5,
-  "val_mse_mean": 0.048532399659355484
-}
