@@ -28,20 +28,18 @@ services:
       db:
         condition: service_healthy
 
-  # ── nginx frontend ────────────────────────────────────────────────
+  # ── React (Vite) frontend ─────────────────────────────────────────
   frontend:
     build:
-      context: .
+      context: .                       # model root, so engine/ + style.css are copyable
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
     volumes:
-      # Mount local files → container แบบ live reload ไม่ต้อง rebuild
-      - ./index.html:/usr/share/nginx/html/index.html
-      - ./style.css:/usr/share/nginx/html/style.css
-      - ./app.js:/usr/share/nginx/html/app.js
-      - ./engine:/usr/share/nginx/html/engine
+      - ./frontend/src:/app/src        # HMR in dev
+      - ./style.css:/app/src/style.css # canonical style.css (root copy)
+      - ./engine:/app/public/engine    # canonical BL engine (root copy)
     ports:
-      - "8770:80"
+      - "8770:5173"   # Vite dev server
     depends_on:
       - backend
 

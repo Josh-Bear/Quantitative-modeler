@@ -310,3 +310,113 @@ canvas#frontier-canvas { width: 100%; max-width: 900px; background: var(--bg-ele
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
 .dot-cloud { background: #4f9cff55; } .dot-mkt { background: var(--amber); }
 .dot-bl { background: var(--accent); } .dot-sharpe { background: var(--green); }
+
+/* ── Compact slider row ──────────────────────────────────────────── */
+.slider-row-compact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.slider-row-compact .sr-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--muted);
+}
+.slider-row-compact .sr-val {
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 48px;
+  text-align: right;
+  color: var(--accent);
+}
+.slider-row-compact input[type="range"] {
+  width: 90px;
+}
+
+/* ── Horizontal divider ──────────────────────────────────────────── */
+.sep {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0;
+}
+
+/* ── Status / footer bar ─────────────────────────────────────────── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.status-bar .sb-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Return-per-stock bar chart ──────────────────────────────────── */
+.rhat-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rhat-ticker {
+  font-size: 13px;
+  font-weight: 600;
+  width: 52px;
+  color: var(--text);
+}
+.rhat-track {
+  flex: 1;
+  height: 7px;
+  background: var(--bg-elev);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.rhat-fill-pos {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--green);
+}
+.rhat-fill-neg {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--red);
+}
+.rhat-val {
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 54px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rhat-val.pos { color: var(--green); }
+.rhat-val.neg { color: var(--red); }
+
+/* ── ML badge on view rows ───────────────────────────────────────── */
+.badge-ml {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(100, 72, 220, 0.18);
+  color: #a78bfa;
+  border-radius: 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* ── Next-page button (appears in status-bar) ────────────────────── */
+.btn-next {
+  padding: 6px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  background: #4f9cff;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+.btn-next:hover { background: var(--accent-dk); }
+.btn-next:disabled { opacity: .4; cursor: not-allowed; }

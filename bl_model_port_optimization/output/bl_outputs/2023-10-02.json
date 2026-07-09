@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2023-10-02",
+  "stock_order": [
+    "GOOG",
+    "GOOGL",
+    "MCD",
+    "LOW",
+    "PEP",
+    "MDLZ",
+    "XOM",
+    "CVX",
+    "BAC",
+    "MS",
+    "TMO",
+    "ABT",
+    "UNP",
+    "RTX",
+    "AAPL",
+    "INTU",
+    "LIN",
+    "AMT",
+    "SPG",
+    "NEE",
+    "DUK"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

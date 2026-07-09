@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2020-04-01",
+  "stock_order": [
+    "TMUS",
+    "NFLX",
+    "BKNG",
+    "AMZN",
+    "COST",
+    "MDLZ",
+    "CVX",
+    "COP",
+    "V",
+    "BLK",
+    "TMO",
+    "UNH",
+    "DE",
+    "FDX",
+    "ORCL",
+    "NOW",
+    "LIN",
+    "AMT",
+    "SPG",
+    "NEE",
+    "DUK"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

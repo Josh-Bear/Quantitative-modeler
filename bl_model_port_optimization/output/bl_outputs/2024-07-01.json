@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2024-07-01",
+  "stock_order": [
+    "GOOGL",
+    "T",
+    "TSLA",
+    "MCD",
+    "MDLZ",
+    "PEP",
+    "COP",
+    "CVX",
+    "MS",
+    "BNY",
+    "BMY",
+    "TMO",
+    "UPS",
+    "UNP",
+    "IBM",
+    "INTU",
+    "LIN",
+    "SPG",
+    "AMT",
+    "DUK",
+    "NEE"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2021-07-01",
+  "stock_order": [
+    "GOOG",
+    "GOOGL",
+    "HD",
+    "TSLA",
+    "PEP",
+    "PG",
+    "CVX",
+    "XOM",
+    "MA",
+    "V",
+    "MRK",
+    "TMO",
+    "UNP",
+    "GD",
+    "NOW",
+    "MSFT",
+    "LIN",
+    "AMT",
+    "SPG",
+    "SO",
+    "DUK"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

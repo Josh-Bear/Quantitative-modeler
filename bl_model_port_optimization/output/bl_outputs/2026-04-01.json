@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2026-04-01",
+  "stock_order": [
+    "CMCSA",
+    "TMUS",
+    "MCD",
+    "TSLA",
+    "WMT",
+    "PG",
+    "XOM",
+    "CVX",
+    "SCHW",
+    "BRK-B",
+    "LLY",
+    "DHR",
+    "BA",
+    "GEV",
+    "QCOM",
+    "AVGO",
+    "LIN",
+    "SPG",
+    "AMT",
+    "NEE",
+    "SO"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

@@ -60,6 +60,9 @@ const state = {
   views: [],           // [{ id, enabled, type, picks:{T:val}, q, omega }]
   results: null,
   nextViewId: 1,
+  mlOmegaMode: 'he-litterman',   // 'he-litterman' | 'svr-residual' | 'blend'
+  mlLoading: false,
+  mlDiagnostics: null,           // per-stock [{ticker, n_rows, lstm_val_mse, ...}] from /api/ml-views
 };
 
 const $  = sel => document.querySelector(sel);
@@ -565,6 +568,125 @@ function confFromStrength(s) {
   if (s > 0.12) return 0.0010;
   return 0.0020;
 }
+
+// ── ML view generator (LSTM+SVR → P, Q, Ω via /api/ml-views) ─────
+const ML_Q_CLAMP = 0.30;   // extreme-r̂ guard (design §6)
+
+// Convert the /api/ml-views payload into view objects for state.views.
+// Each view is tagged mlGenerated:true so the next ML run can remove stale ones.
+function parseMLViews(mlData, omegaMode) {
+  const stockOrder = mlData.stock_order;      // ["AAPL", "MSFT", ...]
+  const P = mlData.P;                         // K×N
+  const Q = mlData.Q;                         // K floats (annualised returns)
+  const omegaArr = mlData.omega[omegaMode];   // K floats — already scaled
+
+  const views = [];
+  for (let k = 0; k < P.length; k++) {
+    const pRow = P[k];
+    const picks = {};
+    stockOrder.forEach((t, i) => { if (pRow[i] !== 0) picks[t] = pRow[i]; });
+    const type = pRow.some(x => x < 0) ? 'relative' : 'absolute';
+    const q = Math.max(-ML_Q_CLAMP, Math.min(ML_Q_CLAMP, Q[k]));
+    views.push({
+      id: state.nextViewId++,
+      enabled: true,
+      type,
+      picks,
+      q: round(q),
+      omega: omegaArr[k],
+      mlGenerated: true,   // flag so regeneration can remove stale ML views
+    });
+  }
+  return views;
+}
+
+$('#ml-omega-mode').addEventListener('change', e => {
+  state.mlOmegaMode = e.target.value;
+});
+
+// Per-stock diagnostics table on the "2 · ML Model" page
+function renderMLDiag() {
+  const tbody = $('#ml-diag-table tbody');
+  const diag = state.mlDiagnostics;
+  if (!diag || !diag.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="muted">ยังไม่มีข้อมูล — กด "🤖 Train ML Models" (ต้องดึงข้อมูลตลาดในหน้า Setup ก่อน)</td></tr>';
+    return;
+  }
+  const mse = x => (x == null || !isFinite(x)) ? '—' : x.toExponential(3);
+  tbody.innerHTML = diag.map(d => {
+    if (!d.success) {
+      return `<tr>
+        <td><b>${d.ticker}</b></td><td>${d.sector || '—'}</td>
+        <td>${d.n_rows || 0}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+        <td title="${d.error || ''}">❌ ${d.error || 'failed'}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td><b>${d.ticker}</b></td><td>${d.sector}</td>
+      <td>${d.n_rows}</td><td>${d.n_train} / ${d.n_val}</td>
+      <td>${mse(d.lstm_val_mse)}</td>
+      <td>${mse(d.svr_train_mse)}</td>
+      <td>${mse(d.svr_test_mse)}</td>
+      <td>${(d.r_hat * 100).toFixed(2)}%</td>
+      <td>${mse(d.omega)}</td>
+      <td>✅</td>
+    </tr>`;
+  }).join('');
+}
+
+async function runMLViews() {
+  if (!state.market) { alert('ดึงข้อมูลตลาดในหน้า Setup ก่อน'); return; }
+  if (state.mlLoading) return;
+
+  const btns = ['#gen-ml', '#gen-ml-2'].map($).filter(Boolean);
+  const statuses = ['#ml-status', '#ml-status-2'].map($).filter(Boolean);
+  const setStatus = txt => statuses.forEach(s => { s.textContent = txt; });
+  state.mlLoading = true;
+  btns.forEach(b => { b.disabled = true; });
+  setStatus('⏳ Training LSTM+SVR... (อาจใช้เวลา 1-5 นาที)');
+
+  try {
+    const res = await fetch(`${API_BASE}/api/ml-views`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tickers: state.market.tickers,
+        tau: +tauEl.value,
+        delta: +deltaEl.value,
+        // Deliberately lower than the backend's own default (ml_constants.LSTM_EPOCHS
+        // = 250, matched by the React frontend's epochs slider): this legacy UI has
+        // no epochs control, so it hardcodes a fast value to keep the wait tolerable.
+        epochs: 30,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) throw new Error(json.detail || json.error || 'ML views failed');
+
+    const ml = json.data;
+    // Remove stale ML views from a previous run before adding fresh ones
+    state.views = state.views.filter(v => !v.mlGenerated);
+    const views = parseMLViews(ml, state.mlOmegaMode);
+    state.views.push(...views);
+    renderViews();
+
+    state.mlDiagnostics = ml.diagnostics || null;
+    renderMLDiag();
+
+    const errs = Object.keys(ml.errors || {});
+    setStatus(`✅ ได้ ${ml.n_absolute} absolute + ${ml.n_relative} relative views` +
+      (errs.length ? ` · ข้าม: ${errs.join(', ')}` : ''));
+  } catch (e) {
+    setStatus('');
+    alert('สร้าง ML views ไม่สำเร็จ: ' + e.message +
+      '\n(backend ต้องมี torch + scikit-learn: pip install torch scikit-learn pandas)');
+  } finally {
+    state.mlLoading = false;
+    btns.forEach(b => { b.disabled = false; });
+  }
+}
+
+$('#gen-ml').addEventListener('click', runMLViews);
+$('#gen-ml-2').addEventListener('click', runMLViews);
 
 // ══════════════════════════════════════════════════════════════
 // RUN BLACK-LITTERMAN

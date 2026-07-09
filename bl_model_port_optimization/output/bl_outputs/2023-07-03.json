@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2023-07-03",
+  "stock_order": [
+    "TMUS",
+    "GOOG",
+    "LOW",
+    "HD",
+    "CL",
+    "MO",
+    "CVX",
+    "XOM",
+    "GS",
+    "BAC",
+    "TMO",
+    "ABBV",
+    "DE",
+    "MMM",
+    "TXN",
+    "ACN",
+    "LIN",
+    "AMT",
+    "SPG",
+    "SO",
+    "DUK"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

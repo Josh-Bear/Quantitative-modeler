@@ -5,3 +5,11 @@ pymongo==4.8.0
 pydantic>=2.6.0
 python-dotenv>=1.0.0
 yfinance>=0.2.37
+
+# ── ML views (/api/ml-views — ML_VIEWS_DESIGN.md) ──
+numpy
+pandas
+scikit-learn
+torch
+# TA-Lib is optional (ht_dcperiod indicator): brew install ta-lib && pip install TA-Lib
+# without it ht_dcperiod = 0.0 (logged warning, no crash)

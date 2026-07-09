@@ -13,6 +13,7 @@ Endpoints:
   GET  /api/ports/{id}                   → get port
   PUT  /api/ports/{id}                   → update port
   DELETE /api/ports/{id}                 → delete port
+  POST /api/ml-views                     → LSTM+SVR machine-generated views
 """
 import os
 from contextlib import asynccontextmanager
@@ -24,14 +25,22 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from database import connect_db, close_db
-from routers import market, search, ports
+from routers import market, search, ports, ml_views
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await connect_db()
+    try:
+        await connect_db()
+    except Exception as e:
+        # MongoDB is only needed for /api/ports (save/load portfolios).
+        # ML views and market data still work without it.
+        print(f"  ⚠️  MongoDB unavailable ({e}) — /api/ports disabled, ML views still work")
     yield
-    await close_db()
+    try:
+        await close_db()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -53,6 +62,7 @@ app.add_middleware(
 app.include_router(market.router, prefix="/api", tags=["market"])
 app.include_router(search.router, prefix="/api", tags=["search"])
 app.include_router(ports.router,  prefix="/api", tags=["ports"])
+app.include_router(ml_views.router, prefix="/api", tags=["ml-views"])
 
 
 # ── Health check ──────────────────────────────────────────────────

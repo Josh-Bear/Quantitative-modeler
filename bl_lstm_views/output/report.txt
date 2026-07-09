@@ -1,0 +1,57 @@
+======================================================================
+  BL · LSTM + SVR  Investor's-View Generator
+  profile=default  universe=['AAPL', 'MSFT', 'JNJ', 'JPM', 'XOM', 'PG']  epochs=600  device=mps
+======================================================================
+
+[1/5] Fetching market data ...
+
+[2/5] Computing indicators + windows ...
+   ✅ AAPL: 4117 usable days, 4083 windows
+   ✅ MSFT: 4117 usable days, 4083 windows
+   ✅ JNJ: 4117 usable days, 4083 windows
+   ✅ JPM: 4117 usable days, 4083 windows
+   ✅ XOM: 4117 usable days, 4083 windows
+   ✅ PG: 4117 usable days, 4083 windows
+
+[3/5] Generating views (6 stocks × 8 LSTM + SVR) ...
+
+[4/5] Black-Litterman allocation ...
+
+  Weights & returns (annualised):
+  Ticker      w_mkt       w*       Δw        Π     μ_BL   Q(view)
+  --------------------------------------------------------------
+  AAPL       45.1%    40.0%    -5.1%    13.3%    13.4%     44.4%
+  MSFT       29.8%    33.2%    +3.5%    10.9%    11.1%    348.5%
+  JNJ         6.4%     5.9%    -0.5%     3.9%     3.9%   -161.3%
+  JPM         9.3%    10.8%    +1.5%     8.4%     8.5%    139.1%
+  XOM         5.9%     6.6%    +0.8%     5.9%     6.0%     68.5%
+  PG          3.6%     3.4%    -0.2%     4.0%     4.0%    -61.1%
+
+  Portfolio (w*):  E[R]=10.7%  vol=20.5%  Sharpe=0.28  TE=1.2%
+  Unconstrained leverage Σ|wᵢ|: 1.00×
+
+[5/5] Backtest vs SPY (rolling 5-day rebalance, test window) ...
+  grid 2025-06-30 → 2026-06-22  (49 rebalances)
+                  Ann.Return   Ann.Vol   Sharpe    MaxDD
+  ----------------------------------------------------
+  BL+model             14.9%     15.0%     0.66    -9.9%
+  SPY buy&hold         22.5%     11.0%     1.59    -5.5%
+
+  Model diagnostics:
+  Ticker    last_close   pred_5d    q_5d  LSTM_MSE   SVR_MSE
+  ----------------------------------------------------------
+  AAPL          289.36    291.91    0.9%    0.0363    0.0001
+  MSFT          373.02    398.81    6.9%    0.0610    0.0001
+  JNJ           253.97    245.84   -3.2%    0.0407    0.0000
+  JPM           327.33    336.36    2.8%    0.0356    0.0002
+  XOM           136.72    138.58    1.4%    0.0643    0.0002
+  PG            146.64    144.86   -1.2%    0.0322    0.0000
+
+  QA checklist:
+    ✅ weights sum to 1.0
+    ✅ weights within [0, 40%] (effective cap)
+    ✅ Q finite
+    ✅ Ω strictly positive
+    ✅ Σ symmetric
+
+  → All 6 tickers used in the model (none skipped).

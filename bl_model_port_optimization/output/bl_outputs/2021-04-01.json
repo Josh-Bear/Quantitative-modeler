@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2021-04-01",
+  "stock_order": [
+    "VZ",
+    "NFLX",
+    "TSLA",
+    "AMZN",
+    "COST",
+    "PG",
+    "CVX",
+    "COP",
+    "MA",
+    "V",
+    "ABT",
+    "TMO",
+    "UBER",
+    "UNP",
+    "INTU",
+    "NOW",
+    "LIN",
+    "AMT",
+    "SPG",
+    "DUK",
+    "SO"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

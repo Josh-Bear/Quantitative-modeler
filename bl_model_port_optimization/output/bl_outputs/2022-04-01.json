@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2022-04-01",
+  "stock_order": [
+    "GOOG",
+    "GOOGL",
+    "LOW",
+    "HD",
+    "MDLZ",
+    "WMT",
+    "XOM",
+    "COP",
+    "MA",
+    "AXP",
+    "ABBV",
+    "MRK",
+    "UPS",
+    "UNP",
+    "NOW",
+    "TXN",
+    "LIN",
+    "AMT",
+    "SPG",
+    "SO",
+    "NEE"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}
