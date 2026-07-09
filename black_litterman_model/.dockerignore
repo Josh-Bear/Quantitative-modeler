@@ -1,0 +1,10 @@
+# Frontend build context = this directory (see docker-compose.yml frontend service)
+frontend/node_modules
+frontend/dist
+frontend/public/engine
+frontend/src/style.css
+.env
+.git
+__pycache__
+*.pyc
+.DS_Store

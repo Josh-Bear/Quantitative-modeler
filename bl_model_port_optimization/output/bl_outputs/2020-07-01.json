@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2020-07-01",
+  "stock_order": [
+    "NFLX",
+    "GOOG",
+    "BKNG",
+    "AMZN",
+    "COST",
+    "PEP",
+    "CVX",
+    "COP",
+    "V",
+    "SCHW",
+    "ISRG",
+    "TMO",
+    "UBER",
+    "UNP",
+    "CRM",
+    "INTC",
+    "LIN",
+    "AMT",
+    "SPG",
+    "NEE",
+    "DUK"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

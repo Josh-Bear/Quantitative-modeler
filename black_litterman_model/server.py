@@ -15,7 +15,7 @@ Dependencies:
   pip3 install yfinance
 
 ทุก request ผ่าน backend ตัวนี้เพื่อเลี่ยงปัญหา CORS ของ Yahoo Finance
-(ตามที่ระบุไว้ใน BL_Optimizer_Plan.md → ข้อควรระวัง: CORS)
+(ตามที่ระบุไว้ใน docs/BL_Optimizer_Plan.md → ข้อควรระวัง: CORS)
 """
 
 import http.server

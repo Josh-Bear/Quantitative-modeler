@@ -98,15 +98,17 @@ const Stats = (() => {
   // ── Signals ───────────────────────────────────────────────────
   // Each returns one value per ticker (in `tickers` order).
 
-  // Momentum = trailing 12m return − most recent 1m return.
+  // Momentum = "12−1" cumulative return over the window [t−12, t−1], i.e.
+  // the 11-month return ending one month ago — the most recent month is
+  // skipped (short-term reversal). De-compounded directly as P[t−1]/P[t−12]−1
+  // rather than (12m return − 1m return), which would be off by a (1+ret₁)
+  // scaling factor.
   function momentum(prices, tickers) {
     return tickers.map(t => {
       const s = prices[t];
       const n = s.length;
       if (n < 13) return 0;
-      const ret12 = s[n - 1] / s[n - 13] - 1;
-      const ret1 = s[n - 1] / s[n - 2] - 1;
-      return ret12 - ret1;
+      return s[n - 2] / s[n - 13] - 1;   // P[t−1] / P[t−12] − 1
     });
   }
 

@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2022-07-01",
+  "stock_order": [
+    "GOOG",
+    "GOOGL",
+    "TSLA",
+    "AMZN",
+    "CL",
+    "PEP",
+    "CVX",
+    "XOM",
+    "V",
+    "AXP",
+    "TMO",
+    "UNH",
+    "UNP",
+    "UBER",
+    "AAPL",
+    "NOW",
+    "LIN",
+    "AMT",
+    "SPG",
+    "SO",
+    "NEE"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

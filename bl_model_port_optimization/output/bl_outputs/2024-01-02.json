@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2024-01-02",
+  "stock_order": [
+    "GOOG",
+    "GOOGL",
+    "LOW",
+    "SBUX",
+    "PG",
+    "WMT",
+    "CVX",
+    "XOM",
+    "MS",
+    "BRK-B",
+    "LLY",
+    "DHR",
+    "EMR",
+    "MMM",
+    "QCOM",
+    "AVGO",
+    "LIN",
+    "SPG",
+    "AMT",
+    "SO",
+    "NEE"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}

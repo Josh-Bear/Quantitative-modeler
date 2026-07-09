@@ -18,8 +18,9 @@
     </div>
     <nav class="tabs">
       <button class="tab active" data-page="setup">1 · Setup</button>
-      <button class="tab" data-page="views">2 · Views</button>
-      <button class="tab" data-page="results">3 · Results</button>
+      <button class="tab" data-page="mlmodel">2 · ML Model</button>
+      <button class="tab" data-page="views">3 · Views</button>
+      <button class="tab" data-page="results">4 · Results</button>
     </nav>
   </header>
 
@@ -97,7 +98,37 @@
       </div>
     </section>
 
-    <!-- ════════════════ PAGE 2: VIEWS ════════════════ -->
+    <!-- ════════════════ PAGE 2: ML MODEL ════════════════ -->
+    <section id="page-mlmodel" class="page">
+      <div class="card">
+        <h2>ML Model Diagnostics (LSTM + SVR)</h2>
+        <p class="muted">เทรน LSTM encoder → SVR ต่อหุ้น (Architecture A) แล้วดูคุณภาพโมเดลรายตัว:
+          จำนวนวันข้อมูลที่ fetch ได้ · LSTM validation MSE · SVR train / test MSE
+          (test = validation slice 20% ท้ายสุดที่โมเดลไม่เคยเห็น)</p>
+        <div class="auto-controls">
+          <button id="gen-ml-2" class="btn btn-primary">🤖 Train ML Models</button>
+          <span id="ml-status-2" style="font-size: 0.85em; color: #888;"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Per-Stock Diagnostics</h2>
+        <div class="table-wrap">
+          <table id="ml-diag-table">
+            <thead>
+              <tr>
+                <th>Ticker</th><th>Sector</th><th>Days</th><th>Train / Test</th>
+                <th>LSTM val MSE</th><th>SVR train MSE</th><th>SVR test MSE</th>
+                <th>r̂ (63d)</th><th>ω</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="10" class="muted">ยังไม่มีข้อมูล — กด "🤖 Train ML Models" (ต้องดึงข้อมูลตลาดในหน้า Setup ก่อน)</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════ PAGE 3: VIEWS ════════════════ -->
     <section id="page-views" class="page">
       <div class="card">
         <h2>Auto Signal Generator</h2>
@@ -107,6 +138,15 @@
           <label class="chk"><input type="checkbox" id="sig-rev" checked /> Mean-Reversion</label>
           <label class="chk"><input type="checkbox" id="sig-rs" checked /> Relative Strength</label>
           <button id="gen-auto" class="btn btn-primary">⚡ Generate Auto Views</button>
+        </div>
+        <div class="ml-view-controls" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+          <select id="ml-omega-mode" class="input-sm">
+            <option value="he-litterman">Ω: He-Litterman</option>
+            <option value="svr-residual">Ω: SVR Residual</option>
+            <option value="blend">Ω: Blend (50/50)</option>
+          </select>
+          <button id="gen-ml" class="btn">🤖 ML Views</button>
+          <span id="ml-status" style="font-size: 0.85em; color: #888;"></span>
         </div>
       </div>
 
@@ -136,7 +176,7 @@
       </div>
     </section>
 
-    <!-- ════════════════ PAGE 3: RESULTS ════════════════ -->
+    <!-- ════════════════ PAGE 4: RESULTS ════════════════ -->
     <section id="page-results" class="page">
       <div id="results-empty" class="card">
         <p class="muted">ยังไม่มีผลลัพธ์ — กลับไปหน้า Views แล้วกด "คำนวณ Black-Litterman"</p>

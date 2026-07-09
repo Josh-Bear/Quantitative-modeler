@@ -1,0 +1,28 @@
+{
+  "rebalance_date": "2020-10-01",
+  "stock_order": [
+    "TMUS",
+    "VZ",
+    "AMZN",
+    "HD",
+    "COST",
+    "PG",
+    "CVX",
+    "XOM",
+    "MA",
+    "V",
+    "MRK",
+    "DHR",
+    "GE",
+    "UNP",
+    "NOW",
+    "ORCL",
+    "LIN",
+    "AMT",
+    "SPG",
+    "NEE",
+    "DUK"
+  ],
+  "n_absolute_views": 11,
+  "n_relative_views": 10
+}
