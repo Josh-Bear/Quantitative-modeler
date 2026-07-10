@@ -1,6 +1,6 @@
 // Page 2 — dedicated ML views page: config, return bar chart, views list
 // (redesigned per FRONTEND_REDESIGN_V2.md §5)
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useMarketStore } from '../store/marketStore'
@@ -66,6 +66,33 @@ export default function MLViews() {
     useViewsStore((s) => s.setLastMLResult),
   ]
 
+  // Polled while a training run is in flight so the status line can show
+  // "Finished k/n" (k = stocks trained so far, n = stocks sent) instead of
+  // a static spinner. Cleared as soon as the run leaves "loading".
+  const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null)
+  const pollRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (mlStatus !== 'loading') {
+      if (pollRef.current !== null) {
+        window.clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+      setProgress(null)
+      return
+    }
+    setProgress({ completed: 0, total: 0 })
+    const poll = () => {
+      api.mlViewsProgress().then(setProgress).catch(() => {})
+    }
+    poll()
+    pollRef.current = window.setInterval(poll, 1000)
+    return () => {
+      if (pollRef.current !== null) window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [mlStatus])
+
   // Re-parse mlViews whenever omegaMode changes so BL always uses the selected Ω.
   useEffect(() => {
     if (!lastResult || !mlViews.length) return
@@ -128,7 +155,10 @@ export default function MLViews() {
         {/* Status message อยู่ใต้ comment */}
         {mlStatus !== 'idle' && (
           <p style={{ fontSize: 12, marginTop: 8, textAlign: 'center' }}>
-            {mlStatus === 'loading' && '⏳ Training LSTM+SVR...'}
+            {mlStatus === 'loading' &&
+              (progress && progress.total > 0
+                ? `⏳ Finished ${progress.completed}/${progress.total}`
+                : '⏳ Training LSTM+SVR...')}
             {mlStatus === 'done' && lastResult &&
               `✅ ${lastResult.n_absolute} absolute + ${lastResult.n_relative} relative`}
             {mlStatus === 'error' && `❌ ${mlError || 'ML views failed'}`}

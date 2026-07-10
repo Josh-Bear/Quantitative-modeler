@@ -50,6 +50,13 @@ export const api = {
     return unwrap<MLResult>(res)
   },
 
+  // GET /api/ml-views/progress — polled while a training run is in flight
+  async mlViewsProgress(): Promise<{ completed: number; total: number }> {
+    return unwrap<{ completed: number; total: number }>(
+      await fetch(`${API_BASE}/api/ml-views/progress`),
+    )
+  },
+
   // GET /api/ports
   async getPorts(): Promise<Port[]> {
     return unwrap<Port[]>(await fetch(`${API_BASE}/api/ports`))

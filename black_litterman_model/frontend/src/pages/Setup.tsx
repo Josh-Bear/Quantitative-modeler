@@ -221,6 +221,13 @@ export default function Setup() {
               })
             }
           />
+          {tickers.length > 0 && tickers.length * (params.maxW / 100) < 1 && (
+            <p className="status err" style={{ fontSize: 11, marginTop: -4 }}>
+              ⚠ Max Weight {params.maxW}% × {tickers.length} หุ้น {'<'} 100% — เป็นไปไม่ได้ที่จะกระจายครบ 100%
+              ระบบจะผ่อนเป็น equal-weight ({(100 / tickers.length).toFixed(1)}%/หุ้น) อัตโนมัติ ซึ่งจะทำให้ Min
+              Weight ไม่มีผลด้วย — เพิ่ม Max Weight หรือเพิ่มจำนวนหุ้น
+            </p>
+          )}
           <button className="btn btn-primary btn-block" disabled={fetching} onClick={fetchMarket}>
             📡 ดึงข้อมูลตลาด
           </button>

@@ -11,7 +11,7 @@ full backtest pipeline. The web app trades some accuracy for speed:
 """
 
 # ── Data / window geometry ────────────────────────────────────────────
-WINDOW       = 30      # LSTM input window (trading days)
+WINDOW       = 63      # LSTM input window (trading days)
 HORIZON      = 63      # forward-return target horizon (trading days)
 FETCH_PERIOD = "2y"    # yfinance history period
 WARMUP_DROP  = 50      # leading rows dropped after indicator computation
@@ -23,19 +23,19 @@ MIN_TRAIN    = 20      # minimum training samples before we give up on a ticker
 MIN_VAL      = 5       # minimum validation samples
 
 # ── LSTM ─────────────────────────────────────────────────────────────
-LSTM_HIDDEN   = 64     # hidden state size (= SVR input dimension)
+LSTM_HIDDEN   = 32     # hidden state size (= SVR input dimension)
 LSTM_LAYERS   = 4      # stacked LSTM layers
-LSTM_DROPOUT  = 0.4    # dropout between layers (ignored when LSTM_LAYERS=1)
-LSTM_LR       = 0.001  # Adam learning rate
-LSTM_BATCH    = 64    # mini-batch size (larger than pipeline for speed)
+LSTM_DROPOUT  = 0.2    # dropout between layers (ignored when LSTM_LAYERS=1)
+LSTM_LR       = 0.00364  # Adam learning rate
+LSTM_BATCH    = 32    # mini-batch size (larger than pipeline for speed)
 LSTM_EPOCHS   = 250     # default request value for /api/ml-views (callers may override;
                         # the legacy vanilla-JS UI always overrides down to 30 for speed)
 LSTM_PATIENCE = 25     # early-stopping patience (epochs with no val improvement)
 
 # ── SVR ──────────────────────────────────────────────────────────────
 SVR_KERNEL  = "rbf"
-SVR_C       = 5.0
-SVR_EPSILON = 0.01
+SVR_C       = 1.2
+SVR_EPSILON = 0.034
 
 # ── Black-Litterman ───────────────────────────────────────────────────
 BL_TAU   = 0.05   # default τ (overridden by request)

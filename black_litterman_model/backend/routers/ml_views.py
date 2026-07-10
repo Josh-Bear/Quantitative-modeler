@@ -48,3 +48,9 @@ async def ml_views(req: MLViewsRequest):
     if not result.get("ok"):
         raise HTTPException(500, result.get("error", "ML view generation failed"))
     return {"ok": True, "data": result}
+
+
+@router.get("/ml-views/progress")
+async def ml_views_progress():
+    from ml_views import get_progress
+    return {"ok": True, "data": get_progress()}

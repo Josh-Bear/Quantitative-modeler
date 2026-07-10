@@ -14,11 +14,13 @@ interface SliderRowProps {
 export default function SliderRow({ label, hint, min, max, step, value, format, onChange }: SliderRowProps) {
   return (
     <div className="slider-row-compact">
-      <span className="sr-label">
-        {label}
-        {hint ? <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>{hint}</span> : null}
-      </span>
-      <span className="sr-val">{format ? format(value) : String(value)}</span>
+      <div className="sr-top">
+        <span className="sr-label">
+          {label}
+          {hint ? <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>{hint}</span> : null}
+        </span>
+        <span className="sr-val">{format ? format(value) : String(value)}</span>
+      </div>
       <input
         type="range"
         min={min}

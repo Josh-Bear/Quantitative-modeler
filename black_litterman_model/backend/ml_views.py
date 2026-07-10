@@ -43,6 +43,17 @@ except ImportError:
     _HAS_TALIB = False
 
 
+# ── Progress tracking (single-user app → one module-level counter is enough) ─
+# generate_ml_views() runs on a worker thread (see routers/ml_views.py); the
+# request thread polls get_progress() via GET /api/ml-views/progress so the
+# UI can show "Finished k/n" instead of a static spinner.
+_progress = {"completed": 0, "total": 0}
+
+
+def get_progress() -> dict:
+    return dict(_progress)
+
+
 # ═════════════════════════════════════════════════════════════════════
 # 1. fetch_features — daily OHLCV → 8 indicators per ticker
 # ═════════════════════════════════════════════════════════════════════
@@ -411,10 +422,14 @@ def generate_ml_views(tickers: list[str], tau: float = C.BL_TAU,
     diagnostics = [{"ticker": t, "n_rows": 0, "success": False, "error": reason}
                    for t, reason in sorted(errors.items())]
 
+    _progress["completed"] = 0
+    _progress["total"] = len(data)
+
     results = []
     for t in sorted(data):
         print(f"  🧠 {t}: training LSTM+SVR (epochs={epochs}) ...")
         res = train_lstm_svr(t, data[t], epochs=epochs)
+        _progress["completed"] += 1
         if res["success"]:
             results.append(res)
             diagnostics.append({k: res[k] for k in (
