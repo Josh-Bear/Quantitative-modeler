@@ -215,7 +215,8 @@ export default function MLViews() {
           <h2>Model Diagnostics</h2>
           <p className="muted">
             จำนวนวันที่ fetch ได้ · LSTM validation MSE · SVR train/test MSE ต่อหุ้น (test = validation
-            slice 20% ท้ายสุดที่โมเดลไม่เคยเห็น)
+            slice 20% ท้ายสุดที่โมเดลไม่เคยเห็น) · r̂ raw = ค่าพยากรณ์ก่อน shrink · β = น้ำหนัก
+            cross-sectional shrink (ต่ำ = ถูกดึงเข้าหา 0 แรงเพราะ test MSE สูง)
           </p>
           <div className="table-wrap">
             <table>
@@ -228,6 +229,8 @@ export default function MLViews() {
                   <th>LSTM val MSE</th>
                   <th>SVR train MSE</th>
                   <th>SVR test MSE</th>
+                  <th>r̂ raw</th>
+                  <th>β</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -243,6 +246,8 @@ export default function MLViews() {
                     <td className="mono">{mse(d.lstm_val_mse)}</td>
                     <td className="mono">{mse(d.svr_train_mse)}</td>
                     <td className="mono">{mse(d.svr_test_mse)}</td>
+                    <td className="mono">{d.r_hat_raw == null ? '—' : pct(d.r_hat_raw)}</td>
+                    <td className="mono">{d.shrink_beta == null ? '—' : d.shrink_beta.toFixed(2)}</td>
                     <td title={d.error || ''}>{d.success ? '✅' : `❌ ${d.error || 'failed'}`}</td>
                   </tr>
                 ))}
@@ -266,7 +271,7 @@ export default function MLViews() {
                 <th>#</th>
                 <th>ประเภท</th>
                 <th>Picks</th>
-                <th>r̂ (raw, 63d)</th>
+                <th>r̂ (shrunk, 63d)</th>
                 <th>Q (annualised, clamped)</th>
                 <th>Ω</th>
                 <th>Used</th>

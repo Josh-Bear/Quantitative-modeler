@@ -228,6 +228,14 @@ def train_lstm_svr(ticker: str, data: dict, epochs: int = C.LSTM_EPOCHS,
         X_train, y_train = X[:n_train], y[:n_train]
         X_val, y_val = X[n_train:], y[n_train:]
 
+        # Winsorize the TRAIN target only (per-stock, train-slice percentiles → no
+        # leakage) so LSTM+SVR never learn to emit ±100% predictions. y_val stays
+        # raw → ω / test MSE below measure honest error against real returns.
+        y_train_fit = y_train
+        if C.WINSOR_ENABLED and len(y_train) > 0:
+            lo, hi = np.percentile(y_train, [100 * C.WINSOR_PCT, 100 * (1 - C.WINSOR_PCT)])
+            y_train_fit = np.clip(y_train, lo, hi).astype(np.float32)
+
         # ── LSTM encoder + linear head, trained end-to-end on MSE ──────
         torch.manual_seed(42)
         device = torch.device("cpu")   # small model — CPU is fast + thread-safe
@@ -240,7 +248,7 @@ def train_lstm_svr(ticker: str, data: dict, epochs: int = C.LSTM_EPOCHS,
         loss_fn = nn.MSELoss()
 
         Xt = torch.from_numpy(X_train).to(device)
-        yt = torch.from_numpy(y_train).unsqueeze(1).to(device)
+        yt = torch.from_numpy(y_train_fit).unsqueeze(1).to(device)
         Xv = torch.from_numpy(X_val).to(device)
         yv = torch.from_numpy(y_val).unsqueeze(1).to(device)
 
@@ -282,17 +290,20 @@ def train_lstm_svr(ticker: str, data: dict, epochs: int = C.LSTM_EPOCHS,
             H_val = encode(Xv).cpu().numpy()
 
         svr = SVR(kernel=C.SVR_KERNEL, C=C.SVR_C, epsilon=C.SVR_EPSILON)
-        svr.fit(H_train, y_train)
+        svr.fit(H_train, y_train_fit)
 
-        # ω = residual variance on the VALIDATION slice only (design §2.1.2 step 7)
+        # ω = residual variance on the VALIDATION slice only (design §2.1.2 step 7).
+        # y_val is RAW (un-winsorized) → ω reflects true error on real returns, so a
+        # stock with genuinely wild returns correctly gets a large ω (BL distrusts it).
         residuals = svr.predict(H_val) - y_val
         omega = float(np.var(residuals))
         if omega <= 0:
             omega = OMEGA_FLOOR
 
         # Per-stock diagnostics for the "ML Model" page: LSTM best val MSE,
-        # SVR fit on train vs held-out val (= this pipeline's test slice)
-        svr_train_mse = float(np.mean((svr.predict(H_train) - y_train) ** 2))
+        # SVR fit on train vs held-out val (= this pipeline's test slice).
+        # Train MSE is measured against the winsorized target the SVR actually fit.
+        svr_train_mse = float(np.mean((svr.predict(H_train) - y_train_fit) ** 2))
         svr_test_mse = float(np.mean(residuals ** 2))
 
         # r̂ from the most recent 30-day window
@@ -326,10 +337,32 @@ def build_views(results: list[dict], sigma: np.ndarray, tau: float = 0.05) -> di
     stock_order = [r["ticker"] for r in results]
     sectors = {r["ticker"]: r["sector"] for r in results}
 
-    # Annualise r̂ and ω using C.ANNUALISE = 252/HORIZON (≈ 4).
+    # ── Cross-sectional shrinkage on raw r̂ (before annualisation) ──────
+    # Bayesian precision weight β_i = Var_cs(r̂) / (Var_cs(r̂) + λ·test_MSE_i):
+    # stocks whose SVR generalises poorly (high test MSE) are pulled toward
+    # SHRINK_TARGET; well-fit stocks are kept. Pools info across stocks — which
+    # BL's per-view Ω cannot do. β can reorder stocks (a poorly-fit high-r̂ name is
+    # intentionally out-ranked by a well-fit lower-r̂ one).
+    raw_rhat = np.array([r["r_hat"] for r in results], dtype=float)
+    if C.SHRINK_ENABLED and n > 1:
+        mse = np.array([(r.get("svr_test_mse") or 0.0) for r in results], dtype=float)
+        var_cs = float(np.var(raw_rhat))
+        denom = var_cs + C.SHRINK_STRENGTH * mse
+        beta = np.where(denom > 0, var_cs / denom, 1.0)
+        shrunk_rhat = C.SHRINK_TARGET + beta * (raw_rhat - C.SHRINK_TARGET)
+    else:
+        beta = np.ones(n)
+        shrunk_rhat = raw_rhat
+
+    # Annualise the SHRUNK r̂ and ω using C.ANNUALISE = 252/HORIZON (≈ 4).
     # SVR output is a 63-day return; JS BL engine uses annualised Σ.
-    r_hat = np.array([r["r_hat"] for r in results]) * C.ANNUALISE
+    r_hat = shrunk_rhat * C.ANNUALISE
     omega_ml = np.array([r["omega"] for r in results]) * (C.ANNUALISE ** 2)
+
+    # per-stock shrink audit for the diagnostics table (raw vs shrunk, β)
+    shrink = {stock_order[i]: {"raw": float(raw_rhat[i]),
+                               "shrunk": float(shrunk_rhat[i]),
+                               "beta": float(beta[i])} for i in range(n)}
 
     tau_sigma = tau * sigma
 
@@ -406,6 +439,7 @@ def build_views(results: list[dict], sigma: np.ndarray, tau: float = 0.05) -> di
         "n_absolute": n_absolute,
         "n_relative": n_relative,
         "sectors": sectors,
+        "shrink": shrink,
     }
 
 
@@ -458,11 +492,22 @@ def generate_ml_views(tickers: list[str], tau: float = C.BL_TAU,
     sigma = returns.cov().values * 252
 
     views = build_views(results, sigma, tau=tau)
+    shrink = views.get("shrink", {})
+
+    # Augment each successful ticker's diagnostics with the pre-shrink raw r̂ and its
+    # shrink β (rendered as extra columns on the Model Diagnostics table).
+    for d in diagnostics:
+        info = shrink.get(d.get("ticker"))
+        if d.get("success") and info:
+            d["r_hat_raw"] = info["raw"]
+            d["shrink_beta"] = info["beta"]
 
     return {
         "ok": True,
         **views,
-        "r_hats": {r["ticker"]: r["r_hat"] for r in results},
+        # r_hats = post-shrink (feeds the bar chart + ML Views r̂ column, consistent
+        # with the shrunk Q). Pre-shrink values live in diagnostics[].r_hat_raw.
+        "r_hats": {t: info["shrunk"] for t, info in shrink.items()},
         "errors": errors,
         "diagnostics": diagnostics,
     }

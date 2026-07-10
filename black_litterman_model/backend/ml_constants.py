@@ -37,6 +37,23 @@ SVR_KERNEL  = "rbf"
 SVR_C       = 0.12
 SVR_EPSILON = 0.034
 
+# ── Winsorize: bound the LSTM+SVR training target (per stock, train slice) ─
+# Clip the training-target 63-day returns to [WINSOR_PCT, 1-WINSOR_PCT] percentiles
+# so the model never learns to emit ±100% predictions. Val stays raw → ω / test MSE
+# measure honest error against real returns. Percentiles are computed on the TRAIN
+# slice only (no leakage) → per-stock adaptive (tight for low-vol, wide for high-vol).
+WINSOR_ENABLED = True
+WINSOR_PCT     = 0.05   # clip train target at 5th / 95th percentile
+
+# ── Cross-sectional shrinkage: pool r̂ across stocks, damp the noisy ones ───
+# Bayesian precision weight β_i = Var_cs(r̂) / (Var_cs(r̂) + λ·test_MSE_i). Stocks
+# whose SVR generalises poorly (high test MSE) are pulled toward SHRINK_TARGET;
+# well-fit stocks are kept. Pools information across stocks — something BL's
+# per-view Ω cannot do. Applied to raw r̂ before annualisation.
+SHRINK_ENABLED  = True
+SHRINK_TARGET   = 0.0   # shrink toward 0 (= no view, let the BL prior dominate)
+SHRINK_STRENGTH = 1.0   # λ multiplier on noise; >1 shrinks harder
+
 # ── Black-Litterman ───────────────────────────────────────────────────
 BL_TAU   = 0.05   # default τ (overridden by request)
 BL_DELTA = 2.5    # default δ (overridden by request)
