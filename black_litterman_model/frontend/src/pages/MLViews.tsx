@@ -19,7 +19,14 @@ const OMEGA_LABELS: Record<OmegaMode, string> = {
 
 // Convert the /api/ml-views payload into MLView objects (same P/Q/omega
 // extraction as legacy app.js parseMLViews, tagged mlGenerated + rHat).
-function parseMLViews(result: MLResult, omegaMode: OmegaMode, ids: number[]): MLView[] {
+// prevEnabled preserves the user's "Used" toggles across re-parses (Ω-mode
+// switch + page remount); omitted on a fresh generation → all default on.
+function parseMLViews(
+  result: MLResult,
+  omegaMode: OmegaMode,
+  ids: number[],
+  prevEnabled?: Record<number, boolean>,
+): MLView[] {
   const stockOrder = result.stock_order
   const omegaArr = result.omega[omegaMode]
 
@@ -31,9 +38,10 @@ function parseMLViews(result: MLResult, omegaMode: OmegaMode, ids: number[]): ML
     const type = pRow.some((x) => x < 0) ? ('relative' as const) : ('absolute' as const)
     const q = Math.max(-ML_Q_CLAMP, Math.min(ML_Q_CLAMP, result.Q[k]))
     const longTicker = stockOrder.find((_, i) => pRow[i] > 0)
+    const id = ids[k]
     return {
-      id: ids[k],
-      enabled: true,
+      id,
+      enabled: prevEnabled ? (prevEnabled[id] ?? true) : true,
       type,
       picks,
       q: round(q),
@@ -94,10 +102,13 @@ export default function MLViews() {
   }, [mlStatus])
 
   // Re-parse mlViews whenever omegaMode changes so BL always uses the selected Ω.
+  // Also fires on mount (page remount) — preserve each row's "Used" toggle so
+  // leaving and returning to the page doesn't silently re-enable disabled views.
   useEffect(() => {
     if (!lastResult || !mlViews.length) return
     const ids = mlViews.map((v) => v.id) // reuse existing IDs to avoid React key churn
-    setMLViews(parseMLViews(lastResult, mlConfig.omegaMode, ids))
+    const prevEnabled = Object.fromEntries(mlViews.map((v) => [v.id, v.enabled]))
+    setMLViews(parseMLViews(lastResult, mlConfig.omegaMode, ids, prevEnabled))
   }, [mlConfig.omegaMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // mlConfig.epochs (default 250) is still sent — there's just no slider UI for it.
@@ -258,7 +269,7 @@ export default function MLViews() {
                 <th>r̂ (raw, 63d)</th>
                 <th>Q (annualised, clamped)</th>
                 <th>Ω</th>
-                <th>เปิด</th>
+                <th>Used</th>
               </tr>
             </thead>
             <tbody>
