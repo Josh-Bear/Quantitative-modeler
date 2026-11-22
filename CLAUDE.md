@@ -84,6 +84,19 @@ python test.py                    # network-free core checks
 
 Generated `data/` and `output/` are gitignored; per-date predictions are cached to `output/predictions/`.
 
+### SET50 Order Execution Simulator (`order_execution/`)
+Hourly SET50 order-execution simulator: signal → pre-trade → MARKET vs TWAP execution → Implementation Shortfall. See `order_execution/README.md`.
+
+```bash
+cd order_execution
+pip install -r requirements.txt   # numpy, pandas, openpyxl (+ matplotlib, nbformat for the notebook)
+python run.py                     # reads SET50_*.csv (gitignored, supplied locally)
+python run.py --synthetic         # no data needed
+python test.py                    # network-free checks
+```
+
+Non-obvious choices: orders are decided at Close_t and first fill at Close_{t+1} (no same-bar fill); the participation cap and square-root impact use each bar's real `TRADING_VALUE`; only bars 10,11,12,13,15,16,17 are kept (14:00 dropped); prices in the data are **not** corporate-action adjusted, so `TICKERS` is pinned to 10 clean liquid names. All config in `src/constants.py`.
+
 ## Architecture
 
 ### `apple_dcf/` — Data → Model pipeline

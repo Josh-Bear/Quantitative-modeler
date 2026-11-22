@@ -1,0 +1,5 @@
+# Market data — large (≈28 MB), supplied locally; see README "Data"
+SET50_*.csv
+data.csv
+# Local session notes
+handoff.md
