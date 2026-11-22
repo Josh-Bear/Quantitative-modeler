@@ -13,11 +13,16 @@ Each model lives in its own directory with a self-contained codebase and documen
 | 1 | [DCF Model Builder](#1-dcf-model-builder) | `dcf/` | JavaScript · Python | Live |
 | 2 | [Apple DCF — Automated Pipeline](#2-apple-dcf--automated-pipeline) | `apple_dcf/` | Python · Excel | Live |
 | 3 | [QQQ High Growth Screener](#3-qqq-high-growth-screener) | `qqq_screener/` | Python · Excel | Live |
-| 4 | LBO Model | `lbo/` | — | Planned |
-| 5 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
-| 6 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
-| 7 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
-| 8 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
+| 4 | [Black-Litterman Portfolio Optimizer](#4-black-litterman-portfolio-optimizer) | `black_litterman_model/` | JavaScript · React · FastAPI | Live |
+| 5 | [BL LSTM+SVR View Generator](#5-bl-lstmsvr-view-generator) | `bl_lstm_views/` | Python · PyTorch | Live |
+| 6 | [ML Black-Litterman Backtest](#6-ml-black-litterman-backtest) | `bl_model_port_optimization/` | Python · PyTorch | Live |
+| 7 | LBO Model | `lbo/` | — | Planned |
+| 8 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
+| 9 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
+| 10 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
+| 11 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
+
+Generated files (`output/`, `cache/`, `data/`) are gitignored — run the model to recreate them.
 
 ---
 
@@ -31,12 +36,13 @@ An interactive, browser-based DCF valuation tool with real-time sensitivity anal
 - Computes terminal value (Gordon Growth + Exit Multiple)
 - Outputs a live sensitivity table (WACC × terminal growth rate)
 
-**Stack:** Vanilla JS frontend · Python (Flask) backend
+**Stack:** Vanilla JS frontend · Python stdlib `http.server` backend (yfinance proxy)
 
 ```bash
 cd dcf
+pip install yfinance
 python server.py
-# open http://localhost:5000
+# open http://localhost:8765
 ```
 
 > See `dcf/README.md` for the full prompt template and variable guide.
@@ -88,7 +94,69 @@ python run.py
 # output → qqq_screener/output/qqq_screener_output.xlsx
 ```
 
-> See `qqq_screener/README.md` for the checklist definitions and config options.
+> See `qqq_screener/README.md` for the checklist definitions and config options,
+> and `qqq_screener/task_brief.md` for the original brief.
+
+---
+
+## 4. Black-Litterman Portfolio Optimizer
+
+Interactive web app that blends market-implied equilibrium returns with your own
+views (manual, signal-generated, or ML-generated) and produces optimal weights.
+
+**What it does**
+- Fetches live prices + market caps, builds Σ and the equilibrium prior Π
+- Combines views into the BL posterior μ_BL, then long-only constrained weights
+- Shows weight table, efficient frontier, and CSV export; saves Ports to MongoDB
+
+**Stack:** Vanilla JS engine (`engine/`) · legacy JS UI or React/Vite UI (`frontend/`) · FastAPI `backend/`
+
+```bash
+cd black_litterman_model
+pip install yfinance
+python server.py
+# open http://localhost:8770
+```
+
+> See `black_litterman_model/README.md` for the React frontend, backend, and Docker setup.
+
+---
+
+## 5. BL LSTM+SVR View Generator
+
+ML pipeline that generates the Black-Litterman investor's views (Q vector) with a
+4-layer LSTM + SVR, then optimises and backtests vs SPY. Exports `output/views.json`
+in the shape the BL web app consumes.
+
+**Stack:** Python · PyTorch · scikit-learn · yfinance
+
+```bash
+cd bl_lstm_views
+pip install -r requirements.txt
+python run.py --quick   # smoke test
+python run.py           # default
+```
+
+> See `bl_lstm_views/README.md`.
+
+---
+
+## 6. ML Black-Litterman Backtest
+
+ML-driven Black-Litterman optimiser with a quarterly walk-forward backtest: per-stock
+LSTM→SVR forecasts, top-2-per-sector stock selection, BL posterior, Max-Sharpe
+portfolio, benchmarked against S&P 500 buy-and-hold.
+
+**Stack:** Python · PyTorch · scikit-learn · TA-Lib · yfinance
+
+```bash
+cd bl_model_port_optimization
+pip install -r requirements.txt   # brew install ta-lib first
+python run.py --quick              # smoke test
+python run.py                      # default profile
+```
+
+> Design spec lives in `bl_model_port_optimization/bl_spec/`; see `bl_model_port_optimization/CLAUDE.md`.
 
 ---
 
@@ -96,28 +164,18 @@ python run.py
 
 ```
 Quantitative-modeler/
-├── dcf/                        # Interactive DCF web app
-│   ├── index.html
-│   ├── app.js
-│   ├── dcf-engine.js
-│   ├── chart-utils.js
-│   ├── style.css
-│   ├── server.py
-│   └── README.md               # DCF prompt template & variable guide
-│
-├── apple_dcf/                  # Apple DCF automated pipeline
-│   ├── run.py                  # Entry point
-│   ├── src/
-│   │   ├── fetch_data.py       # Data fetching (SEC, Yahoo Finance, FRED)
-│   │   ├── build_model.py      # Excel workbook builder
-│   │   ├── constants.py        # Fallback values & config
-│   │   └── formatters.py       # Excel formatting utilities
-│   ├── output/
-│   │   └── DCF_Model_Apple.xlsx
-│   └── antigravity_brief.md    # Full implementation spec
-│
+├── dcf/                          # Interactive DCF web app
+├── apple_dcf/                    # Apple DCF automated pipeline → Excel
+├── qqq_screener/                 # NASDAQ-100 high-growth screener → Excel
+├── black_litterman_model/        # BL optimiser web app (JS engine, React UI, FastAPI backend)
+├── bl_lstm_views/                # LSTM+SVR view generator for BL
+├── bl_model_port_optimization/   # ML BL walk-forward backtest (spec in bl_spec/)
+├── CLAUDE.md                     # Guidance for Claude Code
 └── README.md
 ```
+
+Each Python model follows the same layout: `run.py` entry point, `src/` modules,
+`src/constants.py` for config/fallback data, and a gitignored `output/`.
 
 ---
 
@@ -130,4 +188,5 @@ then relative valuation, then transaction-based, then probabilistic.
 Intrinsic      DCF  →  DDM  →  Monte Carlo DCF
 Relative       Comps  →  SOTP
 Transaction    LBO
+Portfolio      Black-Litterman  →  ML views  →  Walk-forward backtest
 ```

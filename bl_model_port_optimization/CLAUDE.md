@@ -92,8 +92,8 @@ Data/outputs land under `data/` (raw prices, features, reference) and `output/`
   `bl_spec/09_OPEN_DECISIONS.md` §11 — not silent changes:**
   - `--full`'s live universe is **S&P 100**, not S&P 500 (`data_pipeline.get_universe`,
     `constants.WIKI_SP100_URL`). A real S&P-500 `--full` run took 15-20+ hours and
-    had to be interrupted mid-backtest (see `nohup.out`/`full_run.log` in this
-    directory) — not tractable to iterate on.
+    had to be interrupted mid-backtest (see the local, untracked `nohup.out`/`full_run.log`
+    run logs, if present) — not tractable to iterate on.
   - M4 selection ranks by a **risk-adjusted score** `r_hat / sqrt(omega)`
     (`selection.OMEGA_FLOOR`), not raw `r_hat` (spec 04 §2). Motivation: this
     project's own ML diagnostics showed mean IC ≈ 0.086 (spec's own "weakly
