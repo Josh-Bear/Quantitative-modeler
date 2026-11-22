@@ -71,6 +71,19 @@ python test.py                    # network-free BL-core sanity checks
 
 Unlike the other models, there is **no hardcoded `constants.py` fallback** (14 years of daily OHLCV is too large to inline); `fetch_data.py` caches to `output/cache/` and falls back to that, so the first run needs network. Requires PyTorch (uses Apple MPS when available). Tune everything in `src/constants.py`.
 
+### ML Black-Litterman Backtest (`bl_model_port_optimization/`)
+Spec-driven ML Black-Litterman optimiser with a quarterly walk-forward backtest vs S&P 500. Full instructions, locked design decisions and approved spec deviations are in `bl_model_port_optimization/CLAUDE.md`; the spec is `bl_model_port_optimization/bl_spec/` — **read it before changing behaviour**.
+
+```bash
+cd bl_model_port_optimization
+pip install -r requirements.txt   # incl. TA-Lib (brew install ta-lib first)
+python run.py --quick             # smoke: 22 stocks, 2 rebalances, 5 epochs
+python run.py                     # default: ~44 stocks, 4 rebalances, 30 epochs
+python test.py                    # network-free core checks
+```
+
+Generated `data/` and `output/` are gitignored; per-date predictions are cached to `output/predictions/`.
+
 ## Architecture
 
 ### `apple_dcf/` — Data → Model pipeline
@@ -128,17 +141,17 @@ src/preprocessing.py    # train-only MinMax, 30-day windows, 5-day-ahead targets
 src/lstm_model.py       # PyTorch 4×60 LSTM, one multi-output model per stock (Architecture B), MPS→CPU
 src/svr_model.py        # sklearn SVR(RBF,C=5,ε=0.01): indicators → close/SMA-1 (stationary)
 src/views.py            # composes LSTM+SVR → Q (annualised) + Ω (from test error) → views.json
-src/black_litterman.py  # numpy BL (ports zzz.py + mirrors the JS engine's constraint policy)
+src/black_litterman.py  # numpy BL (ports the old zzz.py prototype + mirrors the JS engine's constraint policy)
 src/backtest.py         # rolling 5-day rebalance vs SPY (annual return / Sharpe / max drawdown)
 ```
 
-Non-obvious choices: SVR is **contemporaneous** (the 5-day horizon comes entirely from the LSTM forecasting indicators ahead — don't shift the SVR target); scaler is fit on the **train slice only**; view returns are annualised **linearly** to match the annualised prior Π. `bl_lstm_views/` supersedes the root scratch files `zzz.py` and `indicators/indicators.py`.
+Non-obvious choices: SVR is **contemporaneous** (the 5-day horizon comes entirely from the LSTM forecasting indicators ahead — don't shift the SVR target); scaler is fit on the **train slice only**; view returns are annualised **linearly** to match the annualised prior Π. `bl_lstm_views/` superseded the old root scratch files `zzz.py` and `indicators/indicators.py` (both since removed).
 
 ## Adding a New Model
 
 Each model gets its own top-level directory. Pattern from existing models:
 - Entry point script at the directory root (e.g., `run.py`)
-- `src/` for modules, `output/` for generated files
+- `src/` for modules, `output/` for generated files (gitignored via `**/output/` — never commit outputs)
 - Hardcoded fallback data in a `constants.py` so the model can run without live API access
 - Brief specced in `<dirname>/antigravity_brief.md` or similar
 
