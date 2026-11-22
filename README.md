@@ -16,11 +16,12 @@ Each model lives in its own directory with a self-contained codebase and documen
 | 4 | [Black-Litterman Portfolio Optimizer](#4-black-litterman-portfolio-optimizer) | `black_litterman_model/` | JavaScript · React · FastAPI | Live |
 | 5 | [BL LSTM+SVR View Generator](#5-bl-lstmsvr-view-generator) | `bl_lstm_views/` | Python · PyTorch | Live |
 | 6 | [ML Black-Litterman Backtest](#6-ml-black-litterman-backtest) | `bl_model_port_optimization/` | Python · PyTorch | Live |
-| 7 | LBO Model | `lbo/` | — | Planned |
-| 8 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
-| 9 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
-| 10 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
-| 11 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
+| 7 | [SET50 Order Execution Simulator](#7-set50-order-execution-simulator) | `order_execution/` | Python · Excel | Live |
+| 8 | LBO Model | `lbo/` | — | Planned |
+| 9 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
+| 10 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
+| 11 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
+| 12 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
 
 Generated files (`output/`, `cache/`, `data/`) are gitignored — run the model to recreate them.
 
@@ -160,6 +161,29 @@ python run.py                      # default profile
 
 ---
 
+## 7. SET50 Order Execution Simulator
+
+Simulates sending a 10-stock SET50 portfolio's orders to the market on hourly bars and
+compares MARKET (one shot) with TWAP (5 hourly slices).
+
+**What it does**
+- SMA crossover + RSI signals → pre-trade checks (cash, holdings, weight bounds, board lots)
+- Next-bar execution with half-spread, square-root impact on each bar's real traded value, commission + VAT
+- Implementation Shortfall decomposition, fill vs TWAP / market VWAP, NAV stats → 7-sheet Excel
+
+**Stack:** Python · pandas · openpyxl
+
+```bash
+cd order_execution
+pip install -r requirements.txt
+python run.py              # needs SET50_*.csv (hourly, long format) in the folder
+python run.py --synthetic  # runs without data
+```
+
+> See `order_execution/README.md` for the data format and assumptions.
+
+---
+
 ## Repository Structure
 
 ```
@@ -170,6 +194,7 @@ Quantitative-modeler/
 ├── black_litterman_model/        # BL optimiser web app (JS engine, React UI, FastAPI backend)
 ├── bl_lstm_views/                # LSTM+SVR view generator for BL
 ├── bl_model_port_optimization/   # ML BL walk-forward backtest (spec in bl_spec/)
+├── order_execution/              # SET50 hourly order-execution simulator (MARKET vs TWAP)
 ├── CLAUDE.md                     # Guidance for Claude Code
 └── README.md
 ```
@@ -189,4 +214,5 @@ Intrinsic      DCF  →  DDM  →  Monte Carlo DCF
 Relative       Comps  →  SOTP
 Transaction    LBO
 Portfolio      Black-Litterman  →  ML views  →  Walk-forward backtest
+Execution      Order-execution simulator
 ```
