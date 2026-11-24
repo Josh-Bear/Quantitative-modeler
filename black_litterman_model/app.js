@@ -645,6 +645,19 @@ async function runMLViews() {
   btns.forEach(b => { b.disabled = true; });
   setStatus('⏳ Training LSTM+SVR... (อาจใช้เวลา 1-5 นาที)');
 
+  // Poll GET /api/ml-views/progress so the status line can show "Finished k/n"
+  // once the backend knows how many tickers actually made it past fetch.
+  const pollProgress = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/ml-views/progress`);
+      const json = await res.json();
+      const p = json.data;
+      if (p && p.total > 0) setStatus(`⏳ Finished ${p.completed}/${p.total}`);
+    } catch { /* ignore — keep last status text */ }
+  };
+  pollProgress();
+  const progressTimer = setInterval(pollProgress, 1000);
+
   try {
     const res = await fetch(`${API_BASE}/api/ml-views`, {
       method: 'POST',
@@ -657,6 +670,8 @@ async function runMLViews() {
         // = 250, matched by the React frontend's epochs slider): this legacy UI has
         // no epochs control, so it hardcodes a fast value to keep the wait tolerable.
         epochs: 30,
+        // market weights (ticker → w_mkt) so the backend shrinks views toward Π
+        w_mkt: Object.fromEntries(state.market.tickers.map((t, i) => [t, state.market.wMkt[i]])),
       }),
     });
     const json = await res.json();
@@ -680,6 +695,7 @@ async function runMLViews() {
     alert('สร้าง ML views ไม่สำเร็จ: ' + e.message +
       '\n(backend ต้องมี torch + scikit-learn: pip install torch scikit-learn pandas)');
   } finally {
+    clearInterval(progressTimer);
     state.mlLoading = false;
     btns.forEach(b => { b.disabled = false; });
   }

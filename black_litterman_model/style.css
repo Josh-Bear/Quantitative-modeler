@@ -314,9 +314,14 @@ canvas#frontier-canvas { width: 100%; max-width: 900px; background: var(--bg-ele
 /* ── Compact slider row ──────────────────────────────────────────── */
 .slider-row-compact {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.slider-row-compact .sr-top {
+  display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 6px;
 }
 .slider-row-compact .sr-label {
   flex: 1;
@@ -331,7 +336,7 @@ canvas#frontier-canvas { width: 100%; max-width: 900px; background: var(--bg-ele
   color: var(--accent);
 }
 .slider-row-compact input[type="range"] {
-  width: 90px;
+  width: 100%;
 }
 
 /* ── Horizontal divider ──────────────────────────────────────────── */

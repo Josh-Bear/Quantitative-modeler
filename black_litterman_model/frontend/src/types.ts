@@ -60,6 +60,8 @@ export interface MLDiagnostic {
   svr_train_mse?: number
   svr_test_mse?: number
   r_hat?: number
+  r_hat_raw?: number   // pre-shrink raw 63-day prediction
+  shrink_beta?: number // cross-sectional shrink weight β ∈ (0,1]; low = damped hard
   omega?: number
   success: boolean
   error?: string | null

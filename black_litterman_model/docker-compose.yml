@@ -22,6 +22,11 @@ services:
     env_file: .env
     environment:
       MONGODB_URL: mongodb://db:27017   # override for Docker network
+      WATCHFILES_FORCE_POLLING: "true"  # macOS bind-mounts miss fsevents → poll instead
+    volumes:
+      - ./backend:/app                  # live source — edit + auto-reload, no rebuild
+    # --reload watches /app and restarts uvicorn on every save (dev workflow)
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "8000:8000"
     depends_on:

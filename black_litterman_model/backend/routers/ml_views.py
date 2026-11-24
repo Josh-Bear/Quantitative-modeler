@@ -19,6 +19,7 @@ class MLViewsRequest(BaseModel):
     tau: float = Field(C.BL_TAU, gt=0)
     delta: float = Field(C.BL_DELTA, gt=0)
     epochs: int = Field(C.LSTM_EPOCHS, ge=1, le=500)
+    w_mkt: dict[str, float] | None = None  # ticker → market weight → shrink-toward-Π
 
 
 @router.post("/ml-views")
@@ -43,8 +44,15 @@ async def ml_views(req: MLViewsRequest):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None, partial(generate_ml_views, tickers,
-                      tau=req.tau, delta=req.delta, epochs=req.epochs))
+                      tau=req.tau, delta=req.delta, epochs=req.epochs,
+                      w_mkt=req.w_mkt))
 
     if not result.get("ok"):
         raise HTTPException(500, result.get("error", "ML view generation failed"))
     return {"ok": True, "data": result}
+
+
+@router.get("/ml-views/progress")
+async def ml_views_progress():
+    from ml_views import get_progress
+    return {"ok": True, "data": get_progress()}

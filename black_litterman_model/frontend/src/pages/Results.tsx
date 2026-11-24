@@ -1,9 +1,10 @@
 // Page 4 — metrics, warnings, weights, returns, frontier, actions (§7.4)
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import FrontierChart from '../components/FrontierChart'
 import WeightChart from '../components/WeightChart'
+import { BL } from '../engine'
 import { useMarketStore } from '../store/marketStore'
 import { useResultsStore } from '../store/resultsStore'
 import type { PortLastRun } from '../types'
@@ -12,11 +13,39 @@ import { arrow, cls, pct, signed } from '../utils/format'
 export default function Results() {
   const navigate = useNavigate()
   const result = useResultsStore((s) => s.result)
+  const setResult = useResultsStore((s) => s.setResult)
   const addPort = useResultsStore((s) => s.addPort)
   const params = useMarketStore((s) => s.params)
+  const market = useMarketStore((s) => s.market)
   const rfPct = params.rf
   const [saveStatus, setSaveStatus] = useState('')
   const [copyLabel, setCopyLabel] = useState('📋 Copy Summary')
+
+  // Re-apply weight constraints whenever minW / maxW / rf changes —
+  // no need to re-run the full BL calculation; wRaw is already stored.
+  useEffect(() => {
+    if (!result || !market) return
+    const wStar: number[] = BL.constrainWeights(result.wRaw, {
+      longOnly: true,
+      minW: params.minW / 100,
+      maxW: params.maxW / 100,
+    })
+    const metrics = {
+      expReturn: BL.portfolioReturn(wStar, result.muBL) as number,
+      vol: BL.portfolioVol(wStar, market.sigma) as number,
+      sharpe: BL.sharpe(wStar, result.muBL, market.sigma, params.rf / 100) as number,
+      leverage: BL.leverage(result.wRaw) as number,
+    }
+    const warnings: string[] = []
+    if (metrics.leverage > 1.5)
+      warnings.push(
+        `⚠ Leverage ${metrics.leverage.toFixed(2)}× — ก่อน constraint โมเดลต้องการ short positions มาก (ถูก long-only ปรับแล้ว)`,
+      )
+    if (metrics.expReturn > 0.3)
+      warnings.push(`⚠ Expected Return ${pct(metrics.expReturn)} สูงผิดปกติ — ตรวจสอบ Views`)
+    setResult({ ...result, wStar, metrics, warnings })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.minW, params.maxW, params.rf])
 
   if (!result) {
     return (

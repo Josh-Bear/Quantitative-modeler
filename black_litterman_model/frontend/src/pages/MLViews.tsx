@@ -1,6 +1,6 @@
 // Page 2 — dedicated ML views page: config, return bar chart, views list
 // (redesigned per FRONTEND_REDESIGN_V2.md §5)
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useMarketStore } from '../store/marketStore'
@@ -19,7 +19,14 @@ const OMEGA_LABELS: Record<OmegaMode, string> = {
 
 // Convert the /api/ml-views payload into MLView objects (same P/Q/omega
 // extraction as legacy app.js parseMLViews, tagged mlGenerated + rHat).
-function parseMLViews(result: MLResult, omegaMode: OmegaMode, ids: number[]): MLView[] {
+// prevEnabled preserves the user's "Used" toggles across re-parses (Ω-mode
+// switch + page remount); omitted on a fresh generation → all default on.
+function parseMLViews(
+  result: MLResult,
+  omegaMode: OmegaMode,
+  ids: number[],
+  prevEnabled?: Record<number, boolean>,
+): MLView[] {
   const stockOrder = result.stock_order
   const omegaArr = result.omega[omegaMode]
 
@@ -31,9 +38,10 @@ function parseMLViews(result: MLResult, omegaMode: OmegaMode, ids: number[]): ML
     const type = pRow.some((x) => x < 0) ? ('relative' as const) : ('absolute' as const)
     const q = Math.max(-ML_Q_CLAMP, Math.min(ML_Q_CLAMP, result.Q[k]))
     const longTicker = stockOrder.find((_, i) => pRow[i] > 0)
+    const id = ids[k]
     return {
-      id: ids[k],
-      enabled: true,
+      id,
+      enabled: prevEnabled ? (prevEnabled[id] ?? true) : true,
       type,
       picks,
       q: round(q),
@@ -66,11 +74,41 @@ export default function MLViews() {
     useViewsStore((s) => s.setLastMLResult),
   ]
 
+  // Polled while a training run is in flight so the status line can show
+  // "Finished k/n" (k = stocks trained so far, n = stocks sent) instead of
+  // a static spinner. Cleared as soon as the run leaves "loading".
+  const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null)
+  const pollRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (mlStatus !== 'loading') {
+      if (pollRef.current !== null) {
+        window.clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+      setProgress(null)
+      return
+    }
+    setProgress({ completed: 0, total: 0 })
+    const poll = () => {
+      api.mlViewsProgress().then(setProgress).catch(() => {})
+    }
+    poll()
+    pollRef.current = window.setInterval(poll, 1000)
+    return () => {
+      if (pollRef.current !== null) window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [mlStatus])
+
   // Re-parse mlViews whenever omegaMode changes so BL always uses the selected Ω.
+  // Also fires on mount (page remount) — preserve each row's "Used" toggle so
+  // leaving and returning to the page doesn't silently re-enable disabled views.
   useEffect(() => {
     if (!lastResult || !mlViews.length) return
     const ids = mlViews.map((v) => v.id) // reuse existing IDs to avoid React key churn
-    setMLViews(parseMLViews(lastResult, mlConfig.omegaMode, ids))
+    const prevEnabled = Object.fromEntries(mlViews.map((v) => [v.id, v.enabled]))
+    setMLViews(parseMLViews(lastResult, mlConfig.omegaMode, ids, prevEnabled))
   }, [mlConfig.omegaMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // mlConfig.epochs (default 250) is still sent — there's just no slider UI for it.
@@ -78,7 +116,10 @@ export default function MLViews() {
     if (!market || mlStatus === 'loading') return
     setMLStatus('loading')
     try {
-      const result = await api.mlViews(market.tickers, params.tau, params.delta, mlConfig.epochs)
+      // market weights (ticker → w_mkt) let the backend shrink uncertain views toward Π
+      const wMkt: Record<string, number> = {}
+      market.tickers.forEach((t, i) => (wMkt[t] = market.wMkt[i]))
+      const result = await api.mlViews(market.tickers, params.tau, params.delta, mlConfig.epochs, wMkt)
       setLastResult(result)
       const ids = takeIds(result.P.length)
       setMLViews(parseMLViews(result, mlConfig.omegaMode, ids))
@@ -128,7 +169,10 @@ export default function MLViews() {
         {/* Status message อยู่ใต้ comment */}
         {mlStatus !== 'idle' && (
           <p style={{ fontSize: 12, marginTop: 8, textAlign: 'center' }}>
-            {mlStatus === 'loading' && '⏳ Training LSTM+SVR...'}
+            {mlStatus === 'loading' &&
+              (progress && progress.total > 0
+                ? `⏳ Finished ${progress.completed}/${progress.total}`
+                : '⏳ Training LSTM+SVR...')}
             {mlStatus === 'done' && lastResult &&
               `✅ ${lastResult.n_absolute} absolute + ${lastResult.n_relative} relative`}
             {mlStatus === 'error' && `❌ ${mlError || 'ML views failed'}`}
@@ -174,7 +218,8 @@ export default function MLViews() {
           <h2>Model Diagnostics</h2>
           <p className="muted">
             จำนวนวันที่ fetch ได้ · LSTM validation MSE · SVR train/test MSE ต่อหุ้น (test = validation
-            slice 20% ท้ายสุดที่โมเดลไม่เคยเห็น)
+            slice 20% ท้ายสุดที่โมเดลไม่เคยเห็น) · r̂ raw = ค่าพยากรณ์ก่อน shrink · β = น้ำหนัก
+            cross-sectional shrink (ต่ำ = ถูกดึงเข้าหา Π/ตลาดแรงเพราะ test MSE สูง)
           </p>
           <div className="table-wrap">
             <table>
@@ -187,6 +232,8 @@ export default function MLViews() {
                   <th>LSTM val MSE</th>
                   <th>SVR train MSE</th>
                   <th>SVR test MSE</th>
+                  <th>r̂ raw</th>
+                  <th>β</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -202,6 +249,8 @@ export default function MLViews() {
                     <td className="mono">{mse(d.lstm_val_mse)}</td>
                     <td className="mono">{mse(d.svr_train_mse)}</td>
                     <td className="mono">{mse(d.svr_test_mse)}</td>
+                    <td className="mono">{d.r_hat_raw == null ? '—' : pct(d.r_hat_raw)}</td>
+                    <td className="mono">{d.shrink_beta == null ? '—' : d.shrink_beta.toFixed(2)}</td>
                     <td title={d.error || ''}>{d.success ? '✅' : `❌ ${d.error || 'failed'}`}</td>
                   </tr>
                 ))}
@@ -225,10 +274,10 @@ export default function MLViews() {
                 <th>#</th>
                 <th>ประเภท</th>
                 <th>Picks</th>
-                <th>r̂ (raw, 63d)</th>
+                <th>r̂ (shrunk, 63d)</th>
                 <th>Q (annualised, clamped)</th>
                 <th>Ω</th>
-                <th>เปิด</th>
+                <th>Used</th>
               </tr>
             </thead>
             <tbody>
