@@ -23,9 +23,12 @@ OUTPUT_DIR = ROOT / "output"
 # ─────────────────────────────────────────────────────────────────────────────
 # Bars
 # ─────────────────────────────────────────────────────────────────────────────
-# Bar label hours kept → 7 bars every trading day. 14:00 is dropped (missing on
-# ~30 % of days, all of 2023, lunch-break volume); 00/01/09 are stray rows.
-SESSION_HOURS = [10, 11, 12, 13, 15, 16, 17]
+# Bar label hours kept → 8 bars every trading day; 00/01/09 are stray rows and
+# are dropped. The 14:00 bar (around the afternoon re-open) is missing on ~30 % of
+# days (all of 2023): a missing bar is inserted with zero traded value (nothing can
+# fill there, close carried forward) so every day has the same 8-bar grid.
+SESSION_HOURS = [10, 11, 12, 13, 14, 15, 16, 17]
+OPTIONAL_HOURS = [14]      # a day still counts as "full" for the VWAP profile without these
 TRADING_DAYS_PER_YEAR = 252
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -56,14 +59,14 @@ JUMP_FILTER = 0.15
 # ─────────────────────────────────────────────────────────────────────────────
 # Algorithms — decision at Close_t, first child in bar t+1
 # ─────────────────────────────────────────────────────────────────────────────
-HORIZON_BARS = 7           # TWAP / VWAP / POV must finish within bars t+1 … t+7 (1 trading day)
+HORIZON_BARS = len(SESSION_HOURS)   # TWAP / VWAP / POV must finish within bars t+1 … t+8 (1 trading day)
 SCHEDULE_CAP = 0.25        # TWAP / VWAP child ≤ this share of the bar's traded value (shortfall carries)
 # MARKET has no cap: it takes the whole order in bar t+1 and pays the impact.
 
 # POV child = rate(bar hour) × that bar's actual traded value. The SET lunch break
-# (12:30–14:30) splits the day: morning = bars 10–13, afternoon = bars 15–17.
+# (12:30–14:30) splits the day: morning = bars 10–13, afternoon = bars 14–17.
 MORNING_HOURS = [10, 11, 12, 13]
-AFTERNOON_HOURS = [15, 16, 17]
+AFTERNOON_HOURS = [14, 15, 16, 17]
 POV_SCHEDULES = {
     "POV10": {h: 0.10 for h in SESSION_HOURS},
     "POV5": {h: 0.05 for h in SESSION_HOURS},

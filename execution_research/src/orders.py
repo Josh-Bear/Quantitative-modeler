@@ -2,9 +2,10 @@
 orders.py — the parent orders every algorithm executes (experiment design A).
 
   1. draw N_BASE = ORDERS_PER_BUCKET (decision bar, ticker, side) triplets:
-       decision bar t  uniform over every bar from the first day on which ADV, the
-                       rolling VWAP profile and σ all exist, up to the last bar
-                       with a full horizon after it (≈ Feb 2023 → Nov 2026)
+       decision bar t  uniform over every OBSERVED bar (not an inserted empty 14:00)
+                       from the first day on which ADV, the rolling VWAP profile and
+                       σ all exist, up to the last bar with a full horizon after it
+                       (≈ Feb 2023 → Nov 2026)
        ticker          uniform over the 10 locked TICKERS
        side            buy / sell with equal probability
   2. give every triplet each size in SIZE_BUCKETS_PCT_NAV
@@ -39,18 +40,22 @@ def generate(mk: Market, n_base: int = C.ORDERS_PER_BUCKET, buckets: list[float]
     rng = np.random.default_rng(seed)
     idx = mk.close.index
     close, sigma, jump = mk.close.to_numpy(), mk.sigma.to_numpy(), mk.jump.to_numpy()
+    observed = mk.observed.to_numpy()
     tickers = mk.tickers
     first, last = first_decision_bar(mk), len(idx) - 1 - horizon      # need bars t+1 … t+horizon
     if last < first:
         raise ValueError("not enough bars after the warm-up for one horizon")
     day_of_bar = idx.normalize()
 
-    rejected = {"jump": 0, "no_price": 0, "no_sigma": 0}
+    rejected = {"not_observed": 0, "jump": 0, "no_price": 0, "no_sigma": 0}
     base = []
     while len(base) < n_base:
         t = int(rng.integers(first, last + 1))
         j = int(rng.integers(len(tickers)))
         side = 1 if rng.random() < 0.5 else -1
+        if not observed[t]:
+            rejected["not_observed"] += 1
+            continue
         if np.isnan(close[t: t + horizon + 1, j]).any():
             rejected["no_price"] += 1
             continue
