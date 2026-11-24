@@ -166,6 +166,49 @@ def is_by_size(summ: pd.DataFrame, col: str = "is_mean", title: str = "Mean impl
     return fig
 
 
+# bar fills: same hue rule as the lines; the three POV variants are separated by hatch
+ALGO_HATCH = {"POV10": "", "POV5": "///", "POV5/10": "..."}
+
+
+def size_algo_bars(summ: pd.DataFrame):
+    """Grouped bars, one group per order size: mean IS (±95 % CI) on top, IS std below.
+    The cheapest / least-risky algo in each group is value-labelled."""
+    sizes = sorted(summ["pct_nav"].unique())
+    algos = [a for a in C.ALGOS if a in set(summ["algo"])]
+    n = len(algos)
+    width = 0.8 / n
+    x = np.arange(len(sizes))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7.4), sharex=True,
+                                   gridspec_kw={"height_ratios": [3, 2], "hspace": 0.12})
+    for k, a in enumerate(algos):
+        g = summ[summ.algo == a].set_index("pct_nav").reindex(sizes)
+        pos = x - 0.4 + width * (k + 0.5)
+        color = ALGO_STYLE[a][0]
+        hatch = ALGO_HATCH.get(a, "")
+        yerr = [g["is_mean"] - g["is_ci_lo"], g["is_ci_hi"] - g["is_mean"]]
+        kw = dict(width=width, color=color, edgecolor=SURFACE, linewidth=1.5, hatch=hatch, label=a)
+        ax1.bar(pos, g["is_mean"], yerr=yerr, ecolor=TEXT_2, capsize=2, error_kw={"lw": 0.8}, **kw)
+        ax2.bar(pos, g["is_std"], **kw)
+    # value-label only the best bar per group (lowest mean cost / lowest risk)
+    for ax, col, fmt in ((ax1, "is_mean", "{:.1f}"), (ax2, "is_std", "{:.0f}")):
+        for i, sz in enumerate(sizes):
+            g = summ[summ.pct_nav == sz].set_index("algo").reindex(algos)
+            k = int(np.nanargmin(g[col].to_numpy()))
+            top = g[col].iloc[k] + (g["is_ci_hi"].iloc[k] - g["is_mean"].iloc[k] if col == "is_mean" else 0)
+            ax.text(x[i] - 0.4 + width * (k + 0.5), top + 0.8, fmt.format(g[col].iloc[k]),
+                    ha="center", va="bottom", color=TEXT, fontsize=8)
+        ax.grid(axis="x", visible=False)
+    ax1.set_ylabel("cost: mean IS (bps), ±95 % CI")
+    ax2.set_ylabel("risk: std of IS (bps)")
+    ax1.set_title("Cost and risk by order size and algorithm (labels = best in each group)")
+    ax2.set_xticks(x, [f"{s:.0%} NAV" for s in sizes])
+    ax2.set_xlabel(f"order size (% of NAV {C.NAV_THB / 1e6:,.0f}M)")
+    handles, labels = ax1.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=n, frameon=False)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.94, bottom=0.13)
+    return fig
+
+
 def frontier(summ: pd.DataFrame):
     fig, ax = plt.subplots(figsize=(9, 4.8))
     ends = {}
