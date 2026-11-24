@@ -1,11 +1,12 @@
 """
 plots.py — the notebook's charts, one consistent style.
 
-Six algorithms, but no six-hue palette stays distinguishable on every pair
-(validated with the dataviz palette checker), so the encoding is composite:
-four hues that pass all-pairs (MARKET blue, TWAP yellow, VWAP green, POV family
-pink) and the three POV variants share the pink hue, separated by line style +
-marker (POV10 solid ●, POV5 dashed ■, POV5/10 dotted ▲). Every multi-series
+Seven algorithms, but no palette of that many hues stays distinguishable on
+every pair (validated with the dataviz palette checker), so the encoding is
+composite: four hues that pass all-pairs (MARKET blue, TWAP yellow, VWAP family
+green, POV family pink); variants inside a family share the hue and are separated
+by line style + marker / bar hatch (VWAP solid ●, VWAP3M dashed ■; POV10 solid ●,
+POV5 dashed ■, POV5/10 dotted ▲). Every multi-series
 chart also has a legend, de-collided direct labels and a table in the notebook.
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ ALGO_STYLE = {                       # algo → (color, linestyle, marker)
     "MARKET": (_BLUE, "-", "o"),
     "TWAP": (_YELLOW, "-", "o"),
     "VWAP": (_GREEN, "-", "o"),
+    "VWAP3M": (_GREEN, "--", "s"),
     "POV10": (_PINK, "-", "o"),
     "POV5": (_PINK, "--", "s"),
     "POV5/10": (_PINK, ":", "^"),
@@ -72,7 +74,7 @@ def _label_ends(ax, x, series: dict[str, np.ndarray], fmt="{:.1f}"):
                   {n: f"{n}  {fmt.format(y[-1])}" for n, y in series.items()})
 
 
-def _legend_below(ax, ncol: int = 6):
+def _legend_below(ax, ncol: int = len(C.ALGOS)):
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=ncol)
 
 
@@ -167,7 +169,7 @@ def is_by_size(summ: pd.DataFrame, col: str = "is_mean", title: str = "Mean impl
 
 
 # bar fills: same hue rule as the lines; the three POV variants are separated by hatch
-ALGO_HATCH = {"POV10": "", "POV5": "///", "POV5/10": "..."}
+ALGO_HATCH = {"VWAP3M": "///", "POV10": "", "POV5": "///", "POV5/10": "..."}
 
 
 def size_algo_bars(summ: pd.DataFrame):
@@ -263,7 +265,7 @@ def sensitivity(sens: pd.DataFrame, bucket: str):
         ax.set_xticks(sorted(g["value"].unique()))
     axes[0].set_ylabel(f"mean IS (bps), {bucket}")
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=6, frameon=False)
+    fig.legend(handles, labels, loc="lower center", ncol=len(C.ALGOS), frameon=False)
     fig.suptitle(f"Sensitivity, one parameter at a time ({bucket}; dotted = base value)",
                  x=0.01, ha="left", fontweight="bold", color=TEXT)
     fig.tight_layout(rect=(0, 0.08, 1, 1))

@@ -2,7 +2,7 @@
 constants.py — single source of truth for the execution-algorithm research.
 
 Research question: for the SAME parent order, how much does each execution
-algorithm (MARKET, TWAP, VWAP, POV10, POV5, POV5/10) cost, and how does that
+algorithm (MARKET, TWAP, VWAP, VWAP3M, POV10, POV5, POV5/10) cost, and how does that
 depend on order size, time of day, volatility and year?
 
 Values marked ASSUMPTION are not observable in the data (hourly OHLC + traded
@@ -39,10 +39,15 @@ TRADING_DAYS_PER_YEAR = 252
 # TIDLOR, DELTA ... show 15–170 % one-hour moves; GULF/THAI/MRDIYT start later).
 TICKERS = ["KBANK", "CPALL", "ADVANC", "PTTEP", "AOT", "BBL", "SCB", "PTT", "KTB", "BDMS"]
 ADV_DAYS = 20              # ADV = mean daily TRADING_VALUE over the previous 20 days (no look-ahead)
-# VWAP volume profile: mean hourly share of daily value, pooled over TICKERS, over
-# the previous PROFILE_DAYS trading days (rolling, no look-ahead). Orders start once
-# ADV, profile and σ all exist → the backtest runs from ≈ Feb 2023.
-PROFILE_DAYS = 21
+# VWAP volume profiles: mean hourly share of daily value, pooled over TICKERS, over
+# the previous N full trading days (rolling, no look-ahead). One VWAP algo per window:
+#   VWAP    1 month  (21 days)
+#   VWAP3M  3 months (63 days) — uses whatever history exists (≥ MIN_PROFILE_DAYS)
+#           until 63 days are available, so it starts on the same day as VWAP
+# Orders start once ADV, the profiles and σ all exist → the backtest runs from ≈ Feb 2023.
+VWAP_PROFILES = {"VWAP": 21, "VWAP3M": 63}
+MIN_PROFILE_DAYS = 21
+PROFILE_DAYS = VWAP_PROFILES["VWAP"]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parent orders (experiment design) — every algo executes the same set
@@ -72,7 +77,7 @@ POV_SCHEDULES = {
     "POV5": {h: 0.05 for h in SESSION_HOURS},
     "POV5/10": {**{h: 0.05 for h in MORNING_HOURS}, **{h: 0.10 for h in AFTERNOON_HOURS}},
 }
-ALGOS = ["MARKET", "TWAP", "VWAP", *POV_SCHEDULES]
+ALGOS = ["MARKET", "TWAP", *VWAP_PROFILES, *POV_SCHEDULES]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cost model — fill = bar VWAP ± (½ spread + impact)

@@ -27,8 +27,10 @@ from .data import Market
 
 
 def first_decision_bar(mk: Market) -> int:
-    """First bar of the first day with ADV for every ticker and a VWAP profile."""
-    ok = mk.adv.notna().all(axis=1) & mk.profile.notna().all(axis=1).reindex(mk.adv.index, fill_value=False)
+    """First bar of the first day with ADV for every ticker and every VWAP profile."""
+    ok = mk.adv.notna().all(axis=1)
+    for prof in mk.profiles.values():
+        ok &= prof.notna().all(axis=1).reindex(mk.adv.index, fill_value=False)
     if not ok.any():
         raise ValueError("no day with both ADV and a VWAP profile")
     return int(np.searchsorted(mk.close.index, ok.idxmax()))

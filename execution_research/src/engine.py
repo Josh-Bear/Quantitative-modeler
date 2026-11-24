@@ -7,8 +7,9 @@ What an algo wants in bar t+1+k (k = 0 … H−1):
 
   MARKET  everything left, no cap (first bar with trading)
   TWAP    cumulative target Q·(k+1)/H                      − filled, ≤ cap × bar value
-  VWAP    cumulative target Q·Σ profile(hours ≤ k)/Σ profile − filled, ≤ cap × bar value
-          (profile = the rolling 21-day profile known at the open of the decision day)
+  VWAP*   cumulative target Q·Σ profile(hours ≤ k)/Σ profile − filled, ≤ cap × bar value
+          (profile known at the open of the decision day: VWAP = rolling 21 days,
+          VWAP3M = rolling 63 days)
   POV*    rate(bar hour) × the bar's actual traded value (until Q is reached);
           POV10 = 10 %, POV5 = 5 %, POV5/10 = 5 % morning (10–13) / 10 % afternoon (15–17)
 
@@ -60,15 +61,15 @@ class Arrays:
         self.hours = mk.hours
         self.index = mk.close.index
         self.col = {t: j for j, t in enumerate(mk.tickers)}
-        day_pos = {d: k for k, d in enumerate(mk.profile.index)}
+        day_pos = {d: k for k, d in enumerate(mk.profile.index)}     # all profiles share this index
         self.profile_row = np.array([day_pos[d] for d in mk.days])   # bar → row of its day
-        self.profile = mk.profile.to_numpy()                          # days × SESSION_HOURS
+        self.profiles = {a: p.to_numpy() for a, p in mk.profiles.items()}   # days × SESSION_HOURS
         self.hour_col = {h: k for k, h in enumerate(mk.profile.columns)}
 
 
-def _vwap_cum_weights(ar: Arrays, t: int, h: int) -> np.ndarray:
-    """Weights of bars t+1 … t+h from the profile known at the decision day's open."""
-    prof = ar.profile[ar.profile_row[t]]
+def _vwap_cum_weights(ar: Arrays, t: int, h: int, algo: str = "VWAP") -> np.ndarray:
+    """Weights of bars t+1 … t+h from `algo`'s profile known at the decision day's open."""
+    prof = ar.profiles[algo][ar.profile_row[t]]
     w = np.array([prof[ar.hour_col[int(hr)]] for hr in ar.hours[t + 1: t + 1 + h]])
     if not np.isfinite(w).all() or w.sum() <= 0:
         raise ValueError(f"no VWAP profile for decision bar {t}")
@@ -79,7 +80,7 @@ def execute(order, algo: str, ar: Arrays, p: Params, keep_fills: bool = False) -
     t, j = int(order.decision_i), ar.col[order.ticker]
     s, Q, A, sig = int(order.side), int(order.qty), float(order.arrival_price), float(order.sigma)
     H = p.horizon
-    cumw = _vwap_cum_weights(ar, t, H) if algo == "VWAP" else None
+    cumw = _vwap_cum_weights(ar, t, H, algo) if algo in C.VWAP_PROFILES else None
 
     filled = 0
     comp = dict.fromkeys(COMPONENTS, 0.0)
@@ -96,7 +97,7 @@ def execute(order, algo: str, ar: Arrays, p: Params, keep_fills: bool = False) -
             continue
         if algo == "MARKET":
             q = rem
-        elif algo == "TWAP" or algo == "VWAP":
+        elif algo == "TWAP" or algo in C.VWAP_PROFILES:
             frac = (k + 1) / H if algo == "TWAP" else cumw[k]
             target = Q if k == H - 1 else cost.floor_lot(Q * frac)
             q = min(max(target - filled, 0), rem, cost.floor_lot(p.schedule_cap * val / px))

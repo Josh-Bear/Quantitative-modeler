@@ -34,7 +34,8 @@ def main():
     emit("EXECUTION ALGORITHM RESEARCH — SET50 hourly, " + " vs ".join(C.ALGOS))
     emit("=" * 78)
     emit(f"data     : {', '.join(mk.info['files'])}  ({mk.info['start']} → {mk.info['end']})")
-    emit(f"universe : {', '.join(C.TICKERS)} (locked); VWAP profile = rolling {C.PROFILE_DAYS}-day, "
+    emit(f"universe : {', '.join(C.TICKERS)} (locked); VWAP profiles = rolling "
+         f"{', '.join(f'{a} {n}d' for a, n in C.VWAP_PROFILES.items())}, "
          f"first {mk.info['first_profile_day']}")
     emit(f"orders   : {info['n_orders']:,} = {info['n_base']:,} draws × {len(C.SIZE_BUCKETS_PCT_NAV)} sizes "
          f"(NAV {C.NAV_THB / 1e6:,.0f}M), decisions {info['first_decision_allowed']} → "
