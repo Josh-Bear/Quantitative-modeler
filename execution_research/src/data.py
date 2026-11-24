@@ -1,7 +1,10 @@
 """
 data.py — hourly SET50 bars → everything the experiment needs, with no look-ahead.
 
-  close, value, volume, vwap   bars × TICKERS (the 10 locked names)
+  close, value, volume, vwap   bars × TICKERS (the 10 locked names) on a regular grid:
+                               every trading day × SESSION_HOURS. A bar absent from the
+                               data (mostly 14:00) is inserted with value = volume = 0
+  observed                     True where the bar exists in the data for some ticker
   sigma                        ex-ante hourly σ of close returns at each bar (jumps excluded)
   jump                         |hourly return| > JUMP_FILTER (unadjusted corporate actions)
   adv                          days × tickers: mean daily traded value over the PREVIOUS ADV_DAYS days
@@ -37,6 +40,7 @@ class Market:
     jump: pd.DataFrame
     adv: pd.DataFrame
     profile: pd.DataFrame
+    observed: pd.Series
     info: dict = field(default_factory=dict)
 
     @property
@@ -93,43 +97,58 @@ def build_market(bars: pd.DataFrame, info: dict | None = None,
         w.index.name, w.columns.name = "datetime", None
         return w
 
-    close = wide("close").ffill()                    # NaN before a ticker's first bar stays NaN
-    value = wide("value").fillna(0.0)
-    volume = wide("volume").fillna(0.0)
-    low, high = wide("low"), wide("high")
+    obs_close = wide("close").ffill()                # observed bars only; NaN before a ticker lists
+    days = obs_close.index.normalize().unique()
+    grid = pd.DatetimeIndex([d + pd.Timedelta(hours=h) for d in days for h in C.SESSION_HOURS],
+                            name="datetime")
+    observed = pd.Series(grid.isin(obs_close.index), index=grid, name="observed")
+
+    # σ and jumps from returns between OBSERVED bars (inserted empty bars would add
+    # artificial zero returns); then carried onto the regular grid
+    ret = obs_close.pct_change(fill_method=None)
+    obs_jump = ret.abs() > C.JUMP_FILTER
+    obs_sigma = ret.mask(obs_jump).rolling(C.SIGMA_BARS, min_periods=30).std()   # up to and incl. bar t
+    jump = obs_jump.reindex(grid, fill_value=False)
+    sigma = obs_sigma.reindex(grid).ffill()
+
+    close = obs_close.reindex(grid).ffill()
+    value = wide("value").reindex(grid).fillna(0.0)
+    volume = wide("volume").reindex(grid).fillna(0.0)
+    low, high = wide("low").reindex(grid), wide("high").reindex(grid)
     with np.errstate(divide="ignore", invalid="ignore"):
         raw_vwap = value / volume.where(volume > 0)
     vwap = raw_vwap.clip(lower=low, upper=high)
 
-    ret = close.pct_change(fill_method=None)
-    jump = ret.abs() > C.JUMP_FILTER
-    sigma = ret.mask(jump).rolling(C.SIGMA_BARS, min_periods=30).std()   # returns up to and incl. bar t
-
     daily = value.groupby(value.index.normalize()).sum()
     adv = daily.rolling(C.ADV_DAYS, min_periods=C.ADV_DAYS).mean().shift(1)   # as of the day's open
 
-    profile = rolling_profile(value, close)
+    profile = rolling_profile(value, close, observed)
 
     info.update({
-        "bars": len(close), "tickers": list(close.columns),
+        "bars": len(close), "bars_inserted_empty": int((~observed).sum()),
+        "inserted_by_hour": {int(h): int(n) for h, n in (~observed).groupby(grid.hour).sum().items() if n},
+        "tickers": list(close.columns),
         "start": str(close.index[0]), "end": str(close.index[-1]),
         "jump_bars": int(jump.sum().sum()),
         "vwap_clipped_share": float((raw_vwap != vwap).where(volume > 0).stack().mean()),
         "first_profile_day": str(profile.dropna().index[0].date()) if profile.notna().any().any() else None,
     })
-    return Market(close, value, volume, vwap, sigma, jump, adv, profile, info)
+    return Market(close, value, volume, vwap, sigma, jump, adv, profile, observed, info)
 
 
-def rolling_profile(value: pd.DataFrame, close: pd.DataFrame, days: int = C.PROFILE_DAYS) -> pd.DataFrame:
+def rolling_profile(value: pd.DataFrame, close: pd.DataFrame, observed: pd.Series,
+                    days: int = C.PROFILE_DAYS) -> pd.DataFrame:
     """Profile row for day d = mean of the pooled hourly shares of the last `days` FULL
-    trading days strictly before d (a full day has all SESSION_HOURS bars)."""
-    n_hours = len(C.SESSION_HOURS)
+    trading days strictly before d. A full day has every SESSION_HOURS bar observed,
+    except OPTIONAL_HOURS (a missing 14:00 bar counts as zero share)."""
+    required = [h for h in C.SESSION_HOURS if h not in C.OPTIONAL_HOURS]
     day = value.index.normalize()
     v = value.where(close.notna())                                 # ignore a ticker before it lists
     per_day = v.groupby(day).transform("sum")
     share = v / per_day.where(per_day > 0)
     pooled = share.mean(axis=1)                                    # mean over tickers, per bar
-    full = pd.Series(1, index=value.index).groupby(day).transform("sum") == n_hours
+    req_obs = observed & pd.Series(value.index.hour.isin(required), index=value.index)
+    full = req_obs.groupby(day).transform("sum") == len(required)
     daily = pooled[full].groupby([day[full], value.index.hour[full]]).first().unstack()
     daily = daily.reindex(columns=C.SESSION_HOURS)
     roll = daily.rolling(days, min_periods=days).mean()            # includes the day itself …

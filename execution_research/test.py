@@ -19,8 +19,9 @@ from src.engine import Arrays, Params, execute, run
 
 _results: list[tuple[str, bool, str]] = []
 H = C.HORIZON_BARS
+NH = len(C.SESSION_HOURS)                  # bars per day
 DAYS = 40                                  # > PROFILE_DAYS so the rolling profile exists
-T0 = 26 * 7 + 2                            # decision bar used in the controlled tests (day 27, 12:00)
+T0 = 26 * NH + 2                           # decision bar used in the controlled tests (day 27, 12:00)
 
 
 def check(name: str, cond, detail: str = ""):
@@ -29,7 +30,7 @@ def check(name: str, cond, detail: str = ""):
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 def _bars(days: int, close, value, tickers=("X",), start="2024-01-02") -> pd.DataFrame:
-    """Long bars on the SESSION_HOURS grid. close/value: scalar, or array of length days×7."""
+    """Long bars on the SESSION_HOURS grid. close/value: scalar, or array of length days × NH."""
     dates = pd.bdate_range(start, periods=days)
     dts = [d + pd.Timedelta(hours=h) for d in dates for h in C.SESSION_HOURS]
     n = len(dts)
@@ -78,7 +79,7 @@ def test_flat_market_is_spread_plus_commission():
 
 def test_schedules():
     mk, ar = _market()
-    t, Q = T0, 70_000
+    t, Q = T0, 80_000
     _, f = execute(_order(t, Q), "MARKET", ar, Params(), keep_fills=True)
     check("MARKET: one fill, in bar t+1", len(f) == 1 and f[0]["bar"] == t + 1 and f[0]["qty"] == Q)
     _, f = execute(_order(t, Q), "TWAP", ar, Params(), keep_fills=True)
@@ -99,28 +100,28 @@ def test_schedules():
     _, f = execute(_order(t, 10_000_000), "POV5/10", ar, Params(), keep_fills=True)
     morning = [x["participation"] for x in f if mk.hours[x["bar"]] in C.MORNING_HOURS]
     afternoon = [x["participation"] for x in f if mk.hours[x["bar"]] in C.AFTERNOON_HOURS]
-    check("POV5/10: 5 % in bars 10–13, 10 % in bars 15–17",
+    check("POV5/10: 5 % in bars 10–13, 10 % in bars 14–17",
           morning and afternoon and np.allclose(morning, 0.05, atol=1e-3) and np.allclose(afternoon, 0.10, atol=1e-3))
 
 
 def test_cap_and_catch_up():
     mk, ar = _market(value=20e6)            # cap 25 % → 5 M THB = 100k shares per bar
-    r, f = execute(_order(T0, 1_000_000), "TWAP", ar, Params(), keep_fills=True)   # wants 142.8k/bar
+    r, f = execute(_order(T0, 1_000_000), "TWAP", ar, Params(), keep_fills=True)   # wants 125k/bar
     check("TWAP: capped at SCHEDULE_CAP × bar value", all(x["participation"] <= C.SCHEDULE_CAP + 1e-12 for x in f))
-    check("TWAP: unfilled after horizon is cancelled (fill rate < 1)", r["fill_rate"] == 0.7,
+    check("TWAP: unfilled after horizon is cancelled (fill rate < 1)", r["fill_rate"] == H * 100_000 / 1_000_000,
           f"fill rate {r['fill_rate']:.3f}")
     # catch-up: a no-trade bar inside the window is made up later
-    v = np.full(DAYS * 7, 200e6)
+    v = np.full(DAYS * NH, 200e6)
     v[T0 + 2] = 0.0
     mk2, ar2 = _market(value=v)
-    r, f = execute(_order(T0, 70_000), "TWAP", ar2, Params(), keep_fills=True)
+    r, f = execute(_order(T0, 80_000), "TWAP", ar2, Params(), keep_fills=True)
     check("TWAP: no-trade bar → nothing filled there, caught up next bar",
           r["fill_rate"] == 1.0 and T0 + 2 not in [x["bar"] for x in f] and f[1]["qty"] == 20_000,
           f"slices {[x['qty'] for x in f]}")
 
 
 def test_timing_and_opportunity():
-    c = np.full(DAYS * 7, 50.0)
+    c = np.full(DAYS * NH, 50.0)
     c[T0 + 1:] = 51.0
     mk, ar = _market(close=c)
     r, _ = execute(_order(T0, 10_000), "MARKET", ar, Params())
@@ -136,7 +137,7 @@ def test_timing_and_opportunity():
 
 
 def test_interval_vwap():
-    c = np.linspace(50, 60, DAYS * 7)
+    c = np.linspace(50, 60, DAYS * NH)
     mk, ar = _market(close=c)
     r, _ = execute(_order(T0, 10_000, price=c[T0]), "TWAP", ar, Params())
     exp = H / (1.0 / c[T0 + 1:T0 + 1 + H]).sum()   # equal value per bar, vwap_bar = close → Σv/Σ(v/p) = harmonic mean
@@ -146,16 +147,16 @@ def test_interval_vwap():
 # ─── data layer ───────────────────────────────────────────────────────────────
 def test_data_layer():
     days = DAYS
-    v = np.repeat(np.arange(1, days + 1) * 1e6, 7)            # daily value rises 7M, 14M, …
+    v = np.repeat(np.arange(1, days + 1) * 1e6, NH)           # daily value rises NH·1M, NH·2M, …
     mk = data.build_market(_bars(days, 50.0, v, tickers=("A",)), tickers=None)
     d21 = mk.adv.index[20]
-    exp_a = np.mean(np.arange(1, 21) * 7e6)                   # days 1 … 20, NOT day 21
+    exp_a = np.mean(np.arange(1, 21) * NH * 1e6)              # days 1 … 20, NOT day 21
     check("ADV uses the previous ADV_DAYS days only (no look-ahead)",
           abs(mk.adv.loc[d21, "A"] - exp_a) < 1e-6 and np.isnan(mk.adv.iloc[19]["A"]))
 
     # rolling profile on random hourly values: compare with a direct numpy computation
     rng = np.random.default_rng(0)
-    vals = rng.uniform(1e6, 2e6, (days, 7))
+    vals = rng.uniform(1e6, 2e6, (days, NH))
     bars = _bars(days, 50.0, vals.ravel())
     mk = data.build_market(bars, tickers=None)
     share = vals / vals.sum(axis=1, keepdims=True)
@@ -165,7 +166,7 @@ def test_data_layer():
     got = mk.profile.iloc[d].to_numpy()
     check("rolling profile = mean share of the previous PROFILE_DAYS days", np.allclose(got, exp, atol=1e-12))
     bars2 = bars.copy()
-    bars2.loc[d * 7: d * 7 + 6, "value"] *= rng.uniform(0.1, 10, 7)        # change day d itself
+    bars2.loc[d * NH: d * NH + NH - 1, "value"] *= rng.uniform(0.1, 10, NH)  # change day d itself
     mk2 = data.build_market(bars2, tickers=None)
     check("profile of day d does not use day d (no look-ahead)",
           np.allclose(mk2.profile.iloc[d], got) and not np.allclose(mk2.profile.iloc[d + 1], mk.profile.iloc[d + 1]))
@@ -173,7 +174,7 @@ def test_data_layer():
           np.allclose(mk.profile.dropna().sum(axis=1), 1.0) and mk.profile.iloc[: C.PROFILE_DAYS].isna().all().all()
           and list(mk.profile.columns) == C.SESSION_HOURS)
 
-    c = np.full(days * 7, 50.0)
+    c = np.full(days * NH, 50.0)
     c[40:] = 100.0
     mk2 = data.build_market(_bars(days, c, 1e6), tickers=None)
     check("jump flag on |hourly return| > JUMP_FILTER", bool(mk2.jump.iloc[40, 0]) and mk2.jump.sum().sum() == 1)
@@ -181,6 +182,18 @@ def test_data_layer():
     b.loc[5, ["low", "high"]] = [49.0, 49.5]                  # vwap 50 outside → clipped to 49.5
     mk3 = data.build_market(b, tickers=None)
     check("bar VWAP clipped into [low, high]", mk3.vwap.iloc[5, 0] == 49.5)
+
+    # a day without its 14:00 bar: inserted empty, close carried, still a full profile day
+    b = _bars(days, 50.0, 1e6)
+    miss = (b["dt"].dt.hour == 14) & (b["dt"].dt.normalize() <= b["dt"].dt.normalize().unique()[25])
+    mk4 = data.build_market(b[~miss].reset_index(drop=True), tickers=None)
+    i14 = int(np.flatnonzero(mk4.hours == 14)[3])
+    check("missing 14:00 bar → inserted with value 0, close carried, not observed",
+          len(mk4.close) == days * NH and mk4.value.iloc[i14, 0] == 0 and not mk4.observed.iloc[i14]
+          and mk4.close.iloc[i14, 0] == mk4.close.iloc[i14 - 1, 0])
+    check("days missing only 14:00 still feed the rolling profile (14:00 share = 0)",
+          mk4.profile.iloc[C.PROFILE_DAYS:].notna().all().all()
+          and abs(mk4.profile.iloc[C.PROFILE_DAYS + 1][14]) < 1e-12)
 
 
 def test_holm():
@@ -196,7 +209,9 @@ def test_real_data():
     mk = data.load_market()
     ar = Arrays(mk)
     od, info = orders.generate(mk, n_base=150)
-    check("market: exactly the 10 locked tickers", mk.tickers == C.TICKERS)
+    check("market: exactly the 10 locked tickers, 8-bar grid every day",
+          mk.tickers == C.TICKERS and mk.close.groupby(mk.days).size().eq(NH).all())
+    check("orders: decisions only at observed bars", mk.observed.iloc[od["decision_i"]].all())
     first_ok = pd.Timestamp(mk.info["first_profile_day"])
     check("orders: only locked tickers, decisions after the profile/ADV warm-up",
           set(od["ticker"]) <= set(C.TICKERS) and od["decision_dt"].min() >= first_ok
