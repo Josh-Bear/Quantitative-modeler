@@ -91,6 +91,12 @@ def test_schedules():
     got = np.array([x["qty"] for x in f]) / 1_000_000
     check("VWAP: slices follow the decision day's rolling profile", np.allclose(got, w / w.sum(), atol=2e-4),
           f"max dev {np.abs(got - w / w.sum()).max():.5f}")
+    _, f = execute(_order(t, 1_000_000), "VWAP3M", ar, Params(schedule_cap=1.0), keep_fills=True)
+    prof3 = mk.profiles["VWAP3M"].loc[mk.days[t]]
+    w3 = np.array([prof3[h] for h in mk.hours[t + 1: t + 1 + H]])
+    got3 = np.array([x["qty"] for x in f]) / 1_000_000
+    check("VWAP3M: slices follow its own (3-month) profile", np.allclose(got3, w3 / w3.sum(), atol=2e-4),
+          f"max dev {np.abs(got3 - w3 / w3.sum()).max():.5f}")
     for algo in C.POV_SCHEDULES:
         _, f = execute(_order(t, 10_000_000), algo, ar, Params(), keep_fills=True)
         rates = [C.POV_SCHEDULES[algo][mk.hours[x["bar"]]] for x in f]
@@ -170,6 +176,17 @@ def test_data_layer():
     mk2 = data.build_market(bars2, tickers=None)
     check("profile of day d does not use day d (no look-ahead)",
           np.allclose(mk2.profile.iloc[d], got) and not np.allclose(mk2.profile.iloc[d + 1], mk.profile.iloc[d + 1]))
+    exp3 = share[:d].mean(axis=0)                                       # < 63 days of history → all of it
+    check("VWAP3M profile uses all available history (≥ 21 days) before 63 days exist",
+          np.allclose(mk.profiles["VWAP3M"].iloc[d].to_numpy(), exp3 / exp3.sum(), atol=1e-12)
+          and mk.profiles["VWAP3M"].dropna().index[0] == mk.profile.dropna().index[0])
+    long_days = 80
+    vals_l = rng.uniform(1e6, 2e6, (long_days, NH))
+    mk_l = data.build_market(_bars(long_days, 50.0, vals_l.ravel()), tickers=None)
+    share_l = vals_l / vals_l.sum(axis=1, keepdims=True)
+    exp_l = share_l[70 - 63: 70].mean(axis=0)
+    check("VWAP3M profile = previous 63 days once they exist",
+          np.allclose(mk_l.profiles["VWAP3M"].iloc[70].to_numpy(), exp_l / exp_l.sum(), atol=1e-12))
     check("profile rows sum to 1; NaN during warm-up",
           np.allclose(mk.profile.dropna().sum(axis=1), 1.0) and mk.profile.iloc[: C.PROFILE_DAYS].isna().all().all()
           and list(mk.profile.columns) == C.SESSION_HOURS)

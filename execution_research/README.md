@@ -1,6 +1,6 @@
 # execution_research — which execution algorithm is cheapest on SET50?
 
-A controlled experiment comparing **MARKET, TWAP, VWAP, POV10, POV5 and POV5/10**
+A controlled experiment comparing **MARKET, TWAP, VWAP, VWAP3M, POV10, POV5 and POV5/10**
 on the *same* parent orders, using real hourly SET50 bars (Feb 2023 → Nov 2026).
 The main deliverable is **`Research.ipynb`**: research question → data → cost model →
 experiment design → results → statistics → sensitivity → conclusions.
@@ -12,7 +12,7 @@ pip install -r requirements.txt
 jupyter notebook Research.ipynb     # the study, with charts and conclusions (~15 s to execute)
 python run.py                       # same experiment, text report + CSVs → output/
 python run.py --quick               # smoke test
-python test.py                      # 39 checks (controlled markets + real-data invariants)
+python test.py                      # 42 checks (controlled markets + real-data invariants)
 ```
 
 Data: the gitignored `SET50_*.csv` files in `../order_execution/` (long format,
@@ -29,12 +29,12 @@ Data: the gitignored `SET50_*.csv` files in `../order_execution/` (long format,
 | Timeline | decision + arrival at Close_t; children in bars t+1 … t+8 (horizon = 1 day) |
 | MARKET | everything in bar t+1, no cap |
 | TWAP | cumulative target Q·(k+1)/8, ≤ 25 % of each bar's traded value, catch-up after a short bar |
-| VWAP | cumulative target from a **rolling 21-day volume profile** (hourly share of daily value, pooled over the 10 names, known at the decision day's open; a day missing only 14:00 still counts, with 14:00 = 0 %), same cap/catch-up |
+| VWAP / VWAP3M | cumulative target from a **rolling 21-day (VWAP) or 63-day (VWAP3M) volume profile** (hourly share of daily value, pooled over the 10 names, known at the decision day's open; a day missing only 14:00 still counts, with 14:00 = 0 %), same cap/catch-up; VWAP3M uses whatever history exists (≥ 21 days) until 63 days are available |
 | POV10 / POV5 / POV5/10 | 10 % / 5 % / 5 % morning (bars 10–13) + 10 % afternoon (bars 14–17) of each bar's actual traded value; split at the SET lunch break |
 | Fill price | bar VWAP (value / volume, clipped to [low, high]) ± (½ spread + impact) |
 | Costs | ½ × 1 tick spread (assumption), impact = σ_hour × √(child / bar value) × price, commission 0.157 % + VAT |
 | Metric | Implementation Shortfall vs arrival = timing + spread + impact + commission + opportunity; fill vs interval VWAP |
-| Statistics | paired t-test (Holm-adjusted over 15 pairs) + Wilcoxon + bootstrap CI on order-level differences |
+| Statistics | paired t-test (Holm-adjusted over 21 pairs) + Wilcoxon + bootstrap CI on order-level differences |
 | Robustness | one-at-a-time sensitivity (spread, impact Y, cap) and results by year |
 
 ## Layout
@@ -47,7 +47,7 @@ src/constants.py      ALL parameters (universe, sizes, POV schedules, costs, sen
 src/data.py           bars → close/value/volume/vwap, σ, jumps, ADV, rolling VWAP profile
 src/orders.py         parent-order generator (experiment design)
 src/cost.py           tick table, spread, square-root impact, commission
-src/engine.py         the six algorithms + execution loop + IS decomposition
+src/engine.py         the seven algorithms + execution loop + IS decomposition
 src/stats.py          summary, paired tests, breakdowns, sensitivity
 src/experiment.py     run_experiment() — the whole study in one call
 src/plots.py          notebook charts
@@ -60,4 +60,5 @@ POV5 51.8, **VWAP 51.5**. MARKET vs VWAP = 25.1 bps (95 % CI 21.5–28.6). VWAP 
 at every size (TWAP pays for its 1/8 slice in the thin 14:00 bar). VWAP vs POV5 is not
 significant at any size, and POV5 is far less risky (IS std 49–61 vs ≈ 89 bps) but
 leaves ~6 % of the largest orders unfilled; splitting POV by session (5/10) never beat
-POV5. See the notebook's section 10 for the full findings and limitations.
+POV5. VWAP3M (3-month profile) costs the same as VWAP (1-month) at every size (< 0.02 bps,
+not significant). See the notebook's section 10 for the full findings and limitations.

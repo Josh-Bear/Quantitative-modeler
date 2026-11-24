@@ -8,7 +8,8 @@ data.py — hourly SET50 bars → everything the experiment needs, with no look-
   sigma                        ex-ante hourly σ of close returns at each bar (jumps excluded)
   jump                         |hourly return| > JUMP_FILTER (unadjusted corporate actions)
   adv                          days × tickers: mean daily traded value over the PREVIOUS ADV_DAYS days
-  profile                      days × bar hours: VWAP volume profile known at the open of each day —
+  profiles                     {algo: days × bar hours}: VWAP volume profiles known at the open of each
+                               day, one per window in VWAP_PROFILES (`profile` = the 1-month one) —
                                mean hourly share of daily value, pooled over TICKERS, over the
                                previous PROFILE_DAYS full trading days (rows sum to 1)
 
@@ -39,9 +40,14 @@ class Market:
     sigma: pd.DataFrame
     jump: pd.DataFrame
     adv: pd.DataFrame
-    profile: pd.DataFrame
+    profiles: dict[str, pd.DataFrame]
     observed: pd.Series
     info: dict = field(default_factory=dict)
+
+    @property
+    def profile(self) -> pd.DataFrame:
+        """The 1-month VWAP profile (used for charts and the warm-up date)."""
+        return self.profiles["VWAP"]
 
     @property
     def tickers(self) -> list[str]:
@@ -122,7 +128,9 @@ def build_market(bars: pd.DataFrame, info: dict | None = None,
     daily = value.groupby(value.index.normalize()).sum()
     adv = daily.rolling(C.ADV_DAYS, min_periods=C.ADV_DAYS).mean().shift(1)   # as of the day's open
 
-    profile = rolling_profile(value, close, observed)
+    profiles = {name: rolling_profile(value, close, observed, days=n)
+                for name, n in C.VWAP_PROFILES.items()}
+    profile = profiles["VWAP"]
 
     info.update({
         "bars": len(close), "bars_inserted_empty": int((~observed).sum()),
@@ -133,14 +141,15 @@ def build_market(bars: pd.DataFrame, info: dict | None = None,
         "vwap_clipped_share": float((raw_vwap != vwap).where(volume > 0).stack().mean()),
         "first_profile_day": str(profile.dropna().index[0].date()) if profile.notna().any().any() else None,
     })
-    return Market(close, value, volume, vwap, sigma, jump, adv, profile, observed, info)
+    return Market(close, value, volume, vwap, sigma, jump, adv, profiles, observed, info)
 
 
 def rolling_profile(value: pd.DataFrame, close: pd.DataFrame, observed: pd.Series,
-                    days: int = C.PROFILE_DAYS) -> pd.DataFrame:
+                    days: int = C.PROFILE_DAYS, min_days: int = C.MIN_PROFILE_DAYS) -> pd.DataFrame:
     """Profile row for day d = mean of the pooled hourly shares of the last `days` FULL
-    trading days strictly before d. A full day has every SESSION_HOURS bar observed,
-    except OPTIONAL_HOURS (a missing 14:00 bar counts as zero share)."""
+    trading days strictly before d (fewer, but at least `min_days`, while history is
+    short). A full day has every SESSION_HOURS bar observed, except OPTIONAL_HOURS
+    (a missing 14:00 bar counts as zero share)."""
     required = [h for h in C.SESSION_HOURS if h not in C.OPTIONAL_HOURS]
     day = value.index.normalize()
     v = value.where(close.notna())                                 # ignore a ticker before it lists
@@ -151,7 +160,7 @@ def rolling_profile(value: pd.DataFrame, close: pd.DataFrame, observed: pd.Serie
     full = req_obs.groupby(day).transform("sum") == len(required)
     daily = pooled[full].groupby([day[full], value.index.hour[full]]).first().unstack()
     daily = daily.reindex(columns=C.SESSION_HOURS)
-    roll = daily.rolling(days, min_periods=days).mean()            # includes the day itself …
+    roll = daily.rolling(days, min_periods=min(min_days, days)).mean()   # includes the day itself …
     all_days = pd.DatetimeIndex(day.unique())
     prof = roll.reindex(all_days).ffill().shift(1)                 # … so shift: known at d's open
     prof.index.name, prof.columns.name = "day", "hour"

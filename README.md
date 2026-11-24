@@ -188,8 +188,8 @@ python run.py --synthetic  # runs without data
 ## 8. Execution Algorithm Research
 
 Controlled experiment: 8,000 parent orders (1–25 % of a 100M NAV, 10 locked liquid SET50
-names, Feb 2023 → Nov 2026), each executed by MARKET, TWAP, VWAP (rolling 21-day volume
-profile), POV10, POV5 and POV5/10 on real hourly bars; paired statistical tests,
+names, Feb 2023 → Nov 2026), each executed by MARKET, TWAP, VWAP / VWAP3M (rolling 1- / 3-month
+volume profile), POV10, POV5 and POV5/10 on real hourly bars; paired statistical tests,
 sensitivity and results by year.
 
 **Stack:** Python · pandas · scipy · Jupyter
