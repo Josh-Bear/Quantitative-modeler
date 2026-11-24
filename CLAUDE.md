@@ -97,6 +97,18 @@ python test.py                    # network-free checks
 
 Non-obvious choices: orders are decided at Close_t and first fill at Close_{t+1} (no same-bar fill); the participation cap and square-root impact use each bar's real `TRADING_VALUE`; only bars 10,11,12,13,15,16,17 are kept (14:00 dropped); prices in the data are **not** corporate-action adjusted, so `TICKERS` is pinned to 10 clean liquid names. All config in `src/constants.py`.
 
+### Execution Algorithm Research (`execution_research/`)
+Controlled comparison of MARKET / TWAP / VWAP / POV on identical parent orders. Main deliverable is `Research.ipynb`; `run.py` runs the same `src/experiment.run_experiment()` without charts. Reads the gitignored `../order_execution/SET50_*.csv`.
+
+```bash
+cd execution_research
+python run.py            # ~15 s; output/report.txt + CSVs
+python test.py           # controlled-market checks + real-data invariants
+jupyter nbconvert --to notebook --execute --inplace Research.ipynb
+```
+
+Non-obvious choices: parent orders are random draws (not signals) so every algo executes the **same** set and comparisons are paired; each draw gets all four sizes (1/5/10/25 % of NAV 100M) so size effects are measured on identical time/stock/side; universe is point-in-time Top-10 by trailing 20-day traded value; the VWAP profile is calibrated on 2023–24 only and orders are drawn from 2025–26; children fill at the **bar VWAP**; orders whose window contains a >15 % hourly jump (unadjusted corporate actions) are redrawn. Sensitivity parameters flow through `engine.Params`, not module constants. If the seed or parameters change, the conclusions text in notebook section 10 must be re-checked against the tables.
+
 ## Architecture
 
 ### `apple_dcf/` — Data → Model pipeline

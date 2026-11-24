@@ -17,11 +17,12 @@ Each model lives in its own directory with a self-contained codebase and documen
 | 5 | [BL LSTM+SVR View Generator](#5-bl-lstmsvr-view-generator) | `bl_lstm_views/` | Python · PyTorch | Live |
 | 6 | [ML Black-Litterman Backtest](#6-ml-black-litterman-backtest) | `bl_model_port_optimization/` | Python · PyTorch | Live |
 | 7 | [SET50 Order Execution Simulator](#7-set50-order-execution-simulator) | `order_execution/` | Python · Excel | Live |
-| 8 | LBO Model | `lbo/` | — | Planned |
-| 9 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
-| 10 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
-| 11 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
-| 12 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
+| 8 | [Execution Algorithm Research](#8-execution-algorithm-research) | `execution_research/` | Python · Jupyter | Live |
+| 9 | LBO Model | `lbo/` | — | Planned |
+| 10 | Comparable Company Analysis (Comps) | `comps/` | — | Planned |
+| 11 | Dividend Discount Model (DDM) | `ddm/` | — | Planned |
+| 12 | Monte Carlo DCF | `monte_carlo_dcf/` | — | Planned |
+| 13 | Sum-of-the-Parts (SOTP) | `sotp/` | — | Planned |
 
 Generated files (`output/`, `cache/`, `data/`) are gitignored — run the model to recreate them.
 
@@ -184,6 +185,25 @@ python run.py --synthetic  # runs without data
 
 ---
 
+## 8. Execution Algorithm Research
+
+Controlled experiment: 8,000 parent orders (1–25 % of a 100M NAV, point-in-time Top-10
+SET50 names, out-of-sample 2025–26), each executed by MARKET, TWAP, VWAP and POV on
+real hourly bars; paired statistical tests, sensitivity and an in-sample check.
+
+**Stack:** Python · pandas · scipy · Jupyter
+
+```bash
+cd execution_research
+pip install -r requirements.txt
+jupyter notebook Research.ipynb   # the study
+python run.py                     # text report + CSVs
+```
+
+> Uses the `SET50_*.csv` files in `order_execution/`. See `execution_research/README.md`.
+
+---
+
 ## Repository Structure
 
 ```
@@ -195,6 +215,7 @@ Quantitative-modeler/
 ├── bl_lstm_views/                # LSTM+SVR view generator for BL
 ├── bl_model_port_optimization/   # ML BL walk-forward backtest (spec in bl_spec/)
 ├── order_execution/              # SET50 hourly order-execution simulator (MARKET vs TWAP)
+├── execution_research/           # execution-algo research notebook (MARKET/TWAP/VWAP/POV)
 ├── CLAUDE.md                     # Guidance for Claude Code
 └── README.md
 ```
@@ -214,5 +235,5 @@ Intrinsic      DCF  →  DDM  →  Monte Carlo DCF
 Relative       Comps  →  SOTP
 Transaction    LBO
 Portfolio      Black-Litterman  →  ML views  →  Walk-forward backtest
-Execution      Order-execution simulator
+Execution      Order-execution simulator  →  Execution-algorithm research
 ```
