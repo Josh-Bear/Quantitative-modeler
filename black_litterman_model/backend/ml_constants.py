@@ -13,7 +13,7 @@ full backtest pipeline. The web app trades some accuracy for speed:
 # ── Data / window geometry ────────────────────────────────────────────
 WINDOW       = 63      # LSTM input window (trading days)
 HORIZON      = 63      # forward-return target horizon (trading days)
-FETCH_PERIOD = "5y"    # yfinance history period
+FETCH_PERIOD = "2y"    # yfinance history period
 WARMUP_DROP  = 50      # leading rows dropped after indicator computation
 MIN_ROWS     = 200     # minimum usable rows per ticker after warm-up
 
@@ -51,7 +51,8 @@ WINSOR_PCT     = 0.05   # clip train target at 5th / 95th percentile
 # well-fit stocks are kept. Pools information across stocks — something BL's
 # per-view Ω cannot do. Applied to raw r̂ before annualisation.
 SHRINK_ENABLED  = True
-SHRINK_TARGET   = 0.0   # shrink toward 0 (= no view, let the BL prior dominate)
+SHRINK_TARGET   = 0.0   # FALLBACK target when the request omits w_mkt; with w_mkt the
+                        # shrink anchors to per-stock Π (the true BL-neutral point) instead
 SHRINK_STRENGTH = 1.0   # λ multiplier on noise; >1 shrinks harder
 
 # ── Black-Litterman ───────────────────────────────────────────────────

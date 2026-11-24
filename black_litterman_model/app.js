@@ -670,6 +670,8 @@ async function runMLViews() {
         // = 250, matched by the React frontend's epochs slider): this legacy UI has
         // no epochs control, so it hardcodes a fast value to keep the wait tolerable.
         epochs: 30,
+        // market weights (ticker → w_mkt) so the backend shrinks views toward Π
+        w_mkt: Object.fromEntries(state.market.tickers.map((t, i) => [t, state.market.wMkt[i]])),
       }),
     });
     const json = await res.json();

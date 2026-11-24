@@ -116,7 +116,10 @@ export default function MLViews() {
     if (!market || mlStatus === 'loading') return
     setMLStatus('loading')
     try {
-      const result = await api.mlViews(market.tickers, params.tau, params.delta, mlConfig.epochs)
+      // market weights (ticker → w_mkt) let the backend shrink uncertain views toward Π
+      const wMkt: Record<string, number> = {}
+      market.tickers.forEach((t, i) => (wMkt[t] = market.wMkt[i]))
+      const result = await api.mlViews(market.tickers, params.tau, params.delta, mlConfig.epochs, wMkt)
       setLastResult(result)
       const ids = takeIds(result.P.length)
       setMLViews(parseMLViews(result, mlConfig.omegaMode, ids))
@@ -216,7 +219,7 @@ export default function MLViews() {
           <p className="muted">
             จำนวนวันที่ fetch ได้ · LSTM validation MSE · SVR train/test MSE ต่อหุ้น (test = validation
             slice 20% ท้ายสุดที่โมเดลไม่เคยเห็น) · r̂ raw = ค่าพยากรณ์ก่อน shrink · β = น้ำหนัก
-            cross-sectional shrink (ต่ำ = ถูกดึงเข้าหา 0 แรงเพราะ test MSE สูง)
+            cross-sectional shrink (ต่ำ = ถูกดึงเข้าหา Π/ตลาดแรงเพราะ test MSE สูง)
           </p>
           <div className="table-wrap">
             <table>

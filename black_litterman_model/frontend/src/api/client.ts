@@ -40,12 +40,19 @@ export const api = {
     return data.results || []
   },
 
-  // POST /api/ml-views  body: { tickers, tau, delta, epochs }
-  async mlViews(tickers: string[], tau: number, delta: number, epochs: number): Promise<MLResult> {
+  // POST /api/ml-views  body: { tickers, tau, delta, epochs, w_mkt }
+  // wMkt (ticker → market weight) lets the backend shrink uncertain views toward Π.
+  async mlViews(
+    tickers: string[],
+    tau: number,
+    delta: number,
+    epochs: number,
+    wMkt?: Record<string, number>,
+  ): Promise<MLResult> {
     const res = await fetch(`${API_BASE}/api/ml-views`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tickers, tau, delta, epochs }),
+      body: JSON.stringify({ tickers, tau, delta, epochs, w_mkt: wMkt }),
     })
     return unwrap<MLResult>(res)
   },

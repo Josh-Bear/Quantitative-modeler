@@ -327,41 +327,60 @@ def train_lstm_svr(ticker: str, data: dict, epochs: int = C.LSTM_EPOCHS,
 # ═════════════════════════════════════════════════════════════════════
 # 3. build_views — P, Q, Ω (3 modes)
 # ═════════════════════════════════════════════════════════════════════
-def build_views(results: list[dict], sigma: np.ndarray, tau: float = 0.05) -> dict:
+def build_views(results: list[dict], sigma: np.ndarray, tau: float = 0.05,
+                delta: float = C.BL_DELTA, w_mkt: dict | None = None) -> dict:
     """Assemble P, Q and the three Ω modes from per-stock (r̂, ω, sector).
 
     `results` and `sigma` MUST share the same ordering: alphabetical by
     sector then ticker (generate_ml_views guarantees this).
+
+    `w_mkt` (ticker → market weight) enables shrink-toward-Π; without it the
+    shrink falls back to the scalar C.SHRINK_TARGET (legacy behaviour).
     """
     n = len(results)
     stock_order = [r["ticker"] for r in results]
     sectors = {r["ticker"]: r["sector"] for r in results}
 
-    # ── Cross-sectional shrinkage on raw r̂ (before annualisation) ──────
+    # ── Shrink target: per-stock Π (annualised equilibrium) when w_mkt is given,
+    # else the scalar SHRINK_TARGET fallback. Π is the *neutral* point in BL —
+    # shrinking an uncertain view toward Π (not 0) means "when the model is not
+    # confident, defer to the market" instead of injecting a bearish tilt. Π here
+    # uses the backend daily-×252 Σ, a close proxy for the JS engine's monthly-×12
+    # Π (magnitude within estimation noise — fine as a shrink anchor). ──────
+    raw_rhat = np.array([r["r_hat"] for r in results], dtype=float)   # 63-day
+    rhat_ann = raw_rhat * C.ANNUALISE                                 # annualised
+    if w_mkt is not None:
+        w_vec = np.array([w_mkt.get(t, 0.0) for t in stock_order], dtype=float)
+        s = w_vec.sum()
+        w_vec = w_vec / s if s > 0 else np.full(n, 1.0 / n)   # renorm to trained subset
+        target = delta * (sigma @ w_vec)                     # Π per stock (annualised)
+    else:
+        target = np.full(n, C.SHRINK_TARGET)
+
+    # ── Cross-sectional shrinkage toward `target` ──────────────────────
     # Bayesian precision weight β_i = Var_cs(r̂) / (Var_cs(r̂) + λ·test_MSE_i):
-    # stocks whose SVR generalises poorly (high test MSE) are pulled toward
-    # SHRINK_TARGET; well-fit stocks are kept. Pools info across stocks — which
-    # BL's per-view Ω cannot do. β can reorder stocks (a poorly-fit high-r̂ name is
-    # intentionally out-ranked by a well-fit lower-r̂ one).
-    raw_rhat = np.array([r["r_hat"] for r in results], dtype=float)
+    # stocks whose SVR generalises poorly (high test MSE) collapse to the target;
+    # well-fit stocks keep their signal. β is computed in 63-day units (var_cs and
+    # MSE share units) and applied in annualised space (β is unitless). β can
+    # reorder names — a poorly-fit high-r̂ stock is intentionally pulled back.
     if C.SHRINK_ENABLED and n > 1:
         mse = np.array([(r.get("svr_test_mse") or 0.0) for r in results], dtype=float)
         var_cs = float(np.var(raw_rhat))
         denom = var_cs + C.SHRINK_STRENGTH * mse
         beta = np.where(denom > 0, var_cs / denom, 1.0)
-        shrunk_rhat = C.SHRINK_TARGET + beta * (raw_rhat - C.SHRINK_TARGET)
+        shrunk_ann = target + beta * (rhat_ann - target)
     else:
         beta = np.ones(n)
-        shrunk_rhat = raw_rhat
+        shrunk_ann = rhat_ann
 
-    # Annualise the SHRUNK r̂ and ω using C.ANNUALISE = 252/HORIZON (≈ 4).
-    # SVR output is a 63-day return; JS BL engine uses annualised Σ.
-    r_hat = shrunk_rhat * C.ANNUALISE
+    # r̂ (annualised, shrunk) feeds Q; ω scales as ANNUALISE².
+    r_hat = shrunk_ann
     omega_ml = np.array([r["omega"] for r in results]) * (C.ANNUALISE ** 2)
 
-    # per-stock shrink audit for the diagnostics table (raw vs shrunk, β)
+    # per-stock shrink audit for the diagnostics table (raw vs shrunk 63-day, β)
+    shrunk_63d = shrunk_ann / C.ANNUALISE
     shrink = {stock_order[i]: {"raw": float(raw_rhat[i]),
-                               "shrunk": float(shrunk_rhat[i]),
+                               "shrunk": float(shrunk_63d[i]),
                                "beta": float(beta[i])} for i in range(n)}
 
     tau_sigma = tau * sigma
@@ -447,8 +466,13 @@ def build_views(results: list[dict], sigma: np.ndarray, tau: float = 0.05) -> di
 # 4. generate_ml_views — main entry point (called from the router)
 # ═════════════════════════════════════════════════════════════════════
 def generate_ml_views(tickers: list[str], tau: float = C.BL_TAU,
-                      delta: float = C.BL_DELTA, epochs: int = C.LSTM_EPOCHS) -> dict:
-    """fetch → train per ticker (sequential) → Σ → build_views → JSON payload."""
+                      delta: float = C.BL_DELTA, epochs: int = C.LSTM_EPOCHS,
+                      w_mkt: dict | None = None) -> dict:
+    """fetch → train per ticker (sequential) → Σ → build_views → JSON payload.
+
+    `w_mkt` (ticker → market weight, from the caller) is forwarded to build_views
+    so the shrinkage anchors uncertain views to Π instead of 0.
+    """
     data = fetch_features(tickers)
     errors: dict[str, str] = dict(data.pop("errors"))
 
@@ -491,7 +515,7 @@ def generate_ml_views(tickers: list[str], tau: float = C.BL_TAU,
     returns = closes.pct_change().dropna()
     sigma = returns.cov().values * 252
 
-    views = build_views(results, sigma, tau=tau)
+    views = build_views(results, sigma, tau=tau, delta=delta, w_mkt=w_mkt)
     shrink = views.get("shrink", {})
 
     # Augment each successful ticker's diagnostics with the pre-shrink raw r̂ and its
