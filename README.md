@@ -187,9 +187,10 @@ python run.py --synthetic  # runs without data
 
 ## 8. Execution Algorithm Research
 
-Controlled experiment: 8,000 parent orders (1–25 % of a 100M NAV, point-in-time Top-10
-SET50 names, out-of-sample 2025–26), each executed by MARKET, TWAP, VWAP and POV on
-real hourly bars; paired statistical tests, sensitivity and an in-sample check.
+Controlled experiment: 8,000 parent orders (1–25 % of a 100M NAV, 10 locked liquid SET50
+names, Feb 2023 → Nov 2026), each executed by MARKET, TWAP, VWAP (rolling 21-day volume
+profile), POV10, POV5 and POV5/10 on real hourly bars; paired statistical tests,
+sensitivity and results by year.
 
 **Stack:** Python · pandas · scipy · Jupyter
 
@@ -215,7 +216,7 @@ Quantitative-modeler/
 ├── bl_lstm_views/                # LSTM+SVR view generator for BL
 ├── bl_model_port_optimization/   # ML BL walk-forward backtest (spec in bl_spec/)
 ├── order_execution/              # SET50 hourly order-execution simulator (MARKET vs TWAP)
-├── execution_research/           # execution-algo research notebook (MARKET/TWAP/VWAP/POV)
+├── execution_research/           # execution-algo research notebook (MARKET/TWAP/VWAP/3×POV)
 ├── CLAUDE.md                     # Guidance for Claude Code
 └── README.md
 ```

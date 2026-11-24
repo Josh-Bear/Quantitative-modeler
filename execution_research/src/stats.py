@@ -88,7 +88,7 @@ def paired_tests(res: pd.DataFrame, metric: str = "is_bps") -> pd.DataFrame:
 
 
 def breakdown(res: pd.DataFrame, by: str, metric: str = "is_bps") -> pd.DataFrame:
-    """Mean metric by bucket × group × algo (group columns: hour, vol_tercile, ...)."""
+    """Mean metric by bucket × group × algo (group columns: hour, year, vol_tercile, ...)."""
     t = res.groupby(["pct_nav", "bucket", by, "algo"], observed=True)[metric].mean().unstack("algo")
     return t[[a for a in C.ALGOS if a in t.columns]].reset_index().drop(columns="pct_nav")
 
@@ -108,7 +108,7 @@ def best_algo(summ: pd.DataFrame) -> pd.DataFrame:
 def sensitivity(orders: pd.DataFrame, ar: Arrays, base: Params = Params(),
                 grid: dict = C.SENSITIVITY) -> pd.DataFrame:
     """One-at-a-time: change one parameter, keep the rest at base. Mean IS per bucket × algo."""
-    key = {"SPREAD_TICKS": "spread_ticks", "IMPACT_Y": "impact_y", "POV_RATE": "pov_rate",
+    key = {"SPREAD_TICKS": "spread_ticks", "IMPACT_Y": "impact_y",
            "SCHEDULE_CAP": "schedule_cap", "HORIZON_BARS": "horizon"}
     rows = []
     for name, values in grid.items():

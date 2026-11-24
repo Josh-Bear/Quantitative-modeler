@@ -2,8 +2,8 @@
 constants.py — single source of truth for the execution-algorithm research.
 
 Research question: for the SAME parent order, how much does each execution
-algorithm (MARKET, TWAP, VWAP, POV) cost, and how does that depend on order
-size, time of day and volatility?
+algorithm (MARKET, TWAP, VWAP, POV10, POV5, POV5/10) cost, and how does that
+depend on order size, time of day, volatility and year?
 
 Values marked ASSUMPTION are not observable in the data (hourly OHLC + traded
 value/volume, no bid/ask, no order book) and are varied in the sensitivity runs.
@@ -29,16 +29,17 @@ SESSION_HOURS = [10, 11, 12, 13, 15, 16, 17]
 TRADING_DAYS_PER_YEAR = 252
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sample split
+# Universe — 10 names locked for the whole backtest
 # ─────────────────────────────────────────────────────────────────────────────
-IN_SAMPLE_END = "2024-12-31"     # ≤ this: calibrate the VWAP volume profile only
-# > IN_SAMPLE_END: parent orders are drawn and executed (out-of-sample)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Universe — point-in-time Top-N by traded value
-# ─────────────────────────────────────────────────────────────────────────────
-TOP_N = 10                 # each day: the N names with the highest trailing ADV
+# Liquid SET50 names with full history from 2023-01 and no unadjusted
+# corporate-action jumps (prices in the files are NOT adjusted: BANPU, TRUE,
+# TIDLOR, DELTA ... show 15–170 % one-hour moves; GULF/THAI/MRDIYT start later).
+TICKERS = ["KBANK", "CPALL", "ADVANC", "PTTEP", "AOT", "BBL", "SCB", "PTT", "KTB", "BDMS"]
 ADV_DAYS = 20              # ADV = mean daily TRADING_VALUE over the previous 20 days (no look-ahead)
+# VWAP volume profile: mean hourly share of daily value, pooled over TICKERS, over
+# the previous PROFILE_DAYS trading days (rolling, no look-ahead). Orders start once
+# ADV, profile and σ all exist → the backtest runs from ≈ Feb 2023.
+PROFILE_DAYS = 21
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parent orders (experiment design) — every algo executes the same set
@@ -48,18 +49,27 @@ SIZE_BUCKETS_PCT_NAV = [0.01, 0.05, 0.10, 0.25]   # order notional = % of NAV �
 ORDERS_PER_BUCKET = 2_000
 SEED = 20261124
 LOT = 100
-# Drop an order if any |hourly return| in its window exceeds this: prices are NOT
-# corporate-action adjusted (BANPU +172 %, TRUE +63 %, ... in one hour).
+# Safety net: redraw an order if any |hourly return| in its window exceeds this
+# (prices are not corporate-action adjusted; none of TICKERS trips it).
 JUMP_FILTER = 0.15
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Algorithms — decision at Close_t, first child in bar t+1
 # ─────────────────────────────────────────────────────────────────────────────
 HORIZON_BARS = 7           # TWAP / VWAP / POV must finish within bars t+1 … t+7 (1 trading day)
-POV_RATE = 0.10            # POV child = rate × that bar's actual traded value
 SCHEDULE_CAP = 0.25        # TWAP / VWAP child ≤ this share of the bar's traded value (shortfall carries)
 # MARKET has no cap: it takes the whole order in bar t+1 and pays the impact.
-ALGOS = ["MARKET", "TWAP", "VWAP", "POV"]
+
+# POV child = rate(bar hour) × that bar's actual traded value. The SET lunch break
+# (12:30–14:30) splits the day: morning = bars 10–13, afternoon = bars 15–17.
+MORNING_HOURS = [10, 11, 12, 13]
+AFTERNOON_HOURS = [15, 16, 17]
+POV_SCHEDULES = {
+    "POV10": {h: 0.10 for h in SESSION_HOURS},
+    "POV5": {h: 0.05 for h in SESSION_HOURS},
+    "POV5/10": {**{h: 0.05 for h in MORNING_HOURS}, **{h: 0.10 for h in AFTERNOON_HOURS}},
+}
+ALGOS = ["MARKET", "TWAP", "VWAP", *POV_SCHEDULES]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cost model — fill = bar VWAP ± (½ spread + impact)
@@ -85,6 +95,5 @@ ALPHA = 0.05
 SENSITIVITY = {                       # parameter → values (main value included)
     "SPREAD_TICKS": [1.0, 2.0],
     "IMPACT_Y": [0.5, 1.0, 2.0],
-    "POV_RATE": [0.05, 0.10, 0.20],
     "SCHEDULE_CAP": [0.10, 0.25],
 }
