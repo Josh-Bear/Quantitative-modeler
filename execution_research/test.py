@@ -19,6 +19,8 @@ from src.engine import Arrays, Params, execute, run
 
 _results: list[tuple[str, bool, str]] = []
 H = C.HORIZON_BARS
+DAYS = 40                                  # > PROFILE_DAYS so the rolling profile exists
+T0 = 26 * 7 + 2                            # decision bar used in the controlled tests (day 27, 12:00)
 
 
 def check(name: str, cond, detail: str = ""):
@@ -40,8 +42,8 @@ def _bars(days: int, close, value, tickers=("X",), start="2024-01-02") -> pd.Dat
     return pd.concat(rows, ignore_index=True)
 
 
-def _market(days=30, close=50.0, value=200e6, **kw):
-    mk = data.build_market(_bars(days, close, value, **kw), in_sample_end="2100-01-01")
+def _market(days=DAYS, close=50.0, value=200e6, **kw):
+    mk = data.build_market(_bars(days, close, value, **kw), tickers=None)
     return mk, Arrays(mk)
 
 
@@ -66,7 +68,7 @@ def test_flat_market_is_spread_plus_commission():
     exp_comm = C.COMMISSION_ALL_IN * (1 + exp_spread / 1e4) * 1e4
     ok, det = True, []
     for a in C.ALGOS:
-        r, _ = execute(_order(10, 20_000), a, ar, Params())
+        r, _ = execute(_order(T0, 20_000), a, ar, Params())
         good = (r["fill_rate"] == 1.0 and abs(r["timing_bps"]) < 1e-9 and abs(r["impact_bps"]) < 1e-9
                 and abs(r["spread_bps"] - exp_spread) < 1e-9 and abs(r["commission_bps"] - exp_comm) < 1e-9)
         ok &= good
@@ -76,48 +78,57 @@ def test_flat_market_is_spread_plus_commission():
 
 def test_schedules():
     mk, ar = _market()
-    t, Q = 10, 70_000
+    t, Q = T0, 70_000
     _, f = execute(_order(t, Q), "MARKET", ar, Params(), keep_fills=True)
     check("MARKET: one fill, in bar t+1", len(f) == 1 and f[0]["bar"] == t + 1 and f[0]["qty"] == Q)
     _, f = execute(_order(t, Q), "TWAP", ar, Params(), keep_fills=True)
     check("TWAP: H equal slices over t+1 … t+H", [x["qty"] for x in f] == [Q // H] * H
           and [x["bar"] for x in f] == list(range(t + 1, t + 1 + H)))
     _, f = execute(_order(t, 1_000_000), "VWAP", ar, Params(schedule_cap=1.0), keep_fills=True)
-    w = np.array([mk.profile[h] for h in mk.hours[t + 1: t + 1 + H]])
+    prof = mk.profile.loc[mk.days[t]]                      # profile known at the decision day's open
+    w = np.array([prof[h] for h in mk.hours[t + 1: t + 1 + H]])
     got = np.array([x["qty"] for x in f]) / 1_000_000
-    check("VWAP: slices follow the volume profile of the window", np.allclose(got, w / w.sum(), atol=2e-4),
+    check("VWAP: slices follow the decision day's rolling profile", np.allclose(got, w / w.sum(), atol=2e-4),
           f"max dev {np.abs(got - w / w.sum()).max():.5f}")
-    _, f = execute(_order(t, 10_000_000), "POV", ar, Params(pov_rate=0.1), keep_fills=True)
-    check("POV: child = rate × bar value", all(abs(x["qty"] * 50.0 - 0.1 * 200e6) < 50.0 * C.LOT for x in f)
-          and len(f) == H)
+    for algo in C.POV_SCHEDULES:
+        _, f = execute(_order(t, 10_000_000), algo, ar, Params(), keep_fills=True)
+        rates = [C.POV_SCHEDULES[algo][mk.hours[x["bar"]]] for x in f]
+        check(f"{algo}: child = rate(bar hour) × bar value",
+              len(f) == H and all(abs(x["qty"] * 50.0 - r * 200e6) < 50.0 * C.LOT for x, r in zip(f, rates)),
+              f"rates {sorted(set(rates))}")
+    _, f = execute(_order(t, 10_000_000), "POV5/10", ar, Params(), keep_fills=True)
+    morning = [x["participation"] for x in f if mk.hours[x["bar"]] in C.MORNING_HOURS]
+    afternoon = [x["participation"] for x in f if mk.hours[x["bar"]] in C.AFTERNOON_HOURS]
+    check("POV5/10: 5 % in bars 10–13, 10 % in bars 15–17",
+          morning and afternoon and np.allclose(morning, 0.05, atol=1e-3) and np.allclose(afternoon, 0.10, atol=1e-3))
 
 
 def test_cap_and_catch_up():
     mk, ar = _market(value=20e6)            # cap 25 % → 5 M THB = 100k shares per bar
-    r, f = execute(_order(10, 1_000_000), "TWAP", ar, Params(), keep_fills=True)   # wants 142.8k/bar
+    r, f = execute(_order(T0, 1_000_000), "TWAP", ar, Params(), keep_fills=True)   # wants 142.8k/bar
     check("TWAP: capped at SCHEDULE_CAP × bar value", all(x["participation"] <= C.SCHEDULE_CAP + 1e-12 for x in f))
     check("TWAP: unfilled after horizon is cancelled (fill rate < 1)", r["fill_rate"] == 0.7,
           f"fill rate {r['fill_rate']:.3f}")
     # catch-up: a no-trade bar inside the window is made up later
-    v = np.full(30 * 7, 200e6)
-    v[12] = 0.0
+    v = np.full(DAYS * 7, 200e6)
+    v[T0 + 2] = 0.0
     mk2, ar2 = _market(value=v)
-    r, f = execute(_order(10, 70_000), "TWAP", ar2, Params(), keep_fills=True)
+    r, f = execute(_order(T0, 70_000), "TWAP", ar2, Params(), keep_fills=True)
     check("TWAP: no-trade bar → nothing filled there, caught up next bar",
-          r["fill_rate"] == 1.0 and 12 not in [x["bar"] for x in f] and f[1]["qty"] == 20_000,
+          r["fill_rate"] == 1.0 and T0 + 2 not in [x["bar"] for x in f] and f[1]["qty"] == 20_000,
           f"slices {[x['qty'] for x in f]}")
 
 
 def test_timing_and_opportunity():
-    c = np.full(30 * 7, 50.0)
-    c[11:] = 51.0
+    c = np.full(DAYS * 7, 50.0)
+    c[T0 + 1:] = 51.0
     mk, ar = _market(close=c)
-    r, _ = execute(_order(10, 10_000), "MARKET", ar, Params())
+    r, _ = execute(_order(T0, 10_000), "MARKET", ar, Params())
     check("buy, price +2 % after decision → timing +200 bps", abs(r["timing_bps"] - 200.0) < 1e-9)
-    r, _ = execute(_order(10, 10_000, side=-1), "MARKET", ar, Params())
+    r, _ = execute(_order(T0, 10_000, side=-1), "MARKET", ar, Params())
     check("sell, price +2 % after decision → timing −200 bps (gain)", abs(r["timing_bps"] + 200.0) < 1e-9)
     mk, ar = _market(close=c, value=1e5)                 # tiny liquidity → POV cannot finish
-    r, _ = execute(_order(10, 100_000), "POV", ar, Params())
+    r, _ = execute(_order(T0, 100_000), "POV10", ar, Params())
     unfilled = 100_000 - r["filled"]
     exp = unfilled * (51.0 - 50.0) / (100_000 * 50.0) * 1e4
     check("opportunity = unfilled × s × (Close_{t+H} − arrival)", unfilled > 0 and abs(r["opportunity_bps"] - exp) < 1e-9,
@@ -125,33 +136,50 @@ def test_timing_and_opportunity():
 
 
 def test_interval_vwap():
-    c = np.linspace(50, 60, 30 * 7)
+    c = np.linspace(50, 60, DAYS * 7)
     mk, ar = _market(close=c)
-    r, _ = execute(_order(10, 10_000, price=c[10]), "TWAP", ar, Params())
-    exp = H / (1.0 / c[11:11 + H]).sum()    # equal value per bar, vwap_bar = close → Σv/Σ(v/p) = harmonic mean
+    r, _ = execute(_order(T0, 10_000, price=c[T0]), "TWAP", ar, Params())
+    exp = H / (1.0 / c[T0 + 1:T0 + 1 + H]).sum()   # equal value per bar, vwap_bar = close → Σv/Σ(v/p) = harmonic mean
     check("interval VWAP = Σ value / Σ volume over t+1 … t+H", abs(r["interval_vwap"] - exp) < 1e-9)
 
 
 # ─── data layer ───────────────────────────────────────────────────────────────
 def test_data_layer():
-    days = 30
+    days = DAYS
     v = np.repeat(np.arange(1, days + 1) * 1e6, 7)            # daily value rises 7M, 14M, …
-    bars = pd.concat([_bars(days, 50.0, v, tickers=("A",)), _bars(days, 20.0, 2 * v, tickers=("B",))])
-    mk = data.build_market(bars, in_sample_end="2100-01-01")
+    mk = data.build_market(_bars(days, 50.0, v, tickers=("A",)), tickers=None)
     d21 = mk.adv.index[20]
     exp_a = np.mean(np.arange(1, 21) * 7e6)                   # days 1 … 20, NOT day 21
     check("ADV uses the previous ADV_DAYS days only (no look-ahead)",
           abs(mk.adv.loc[d21, "A"] - exp_a) < 1e-6 and np.isnan(mk.adv.iloc[19]["A"]))
-    check("point-in-time Top-N by ADV", bool(mk.top.loc[d21, "B"]) and mk.top.loc[d21].sum() == 2)
-    check("volume profile sums to 1 over SESSION_HOURS", abs(mk.profile.sum() - 1) < 1e-12
-          and list(mk.profile.index) == C.SESSION_HOURS)
+
+    # rolling profile on random hourly values: compare with a direct numpy computation
+    rng = np.random.default_rng(0)
+    vals = rng.uniform(1e6, 2e6, (days, 7))
+    bars = _bars(days, 50.0, vals.ravel())
+    mk = data.build_market(bars, tickers=None)
+    share = vals / vals.sum(axis=1, keepdims=True)
+    d = 30
+    exp = share[d - C.PROFILE_DAYS: d].mean(axis=0)
+    exp = exp / exp.sum()
+    got = mk.profile.iloc[d].to_numpy()
+    check("rolling profile = mean share of the previous PROFILE_DAYS days", np.allclose(got, exp, atol=1e-12))
+    bars2 = bars.copy()
+    bars2.loc[d * 7: d * 7 + 6, "value"] *= rng.uniform(0.1, 10, 7)        # change day d itself
+    mk2 = data.build_market(bars2, tickers=None)
+    check("profile of day d does not use day d (no look-ahead)",
+          np.allclose(mk2.profile.iloc[d], got) and not np.allclose(mk2.profile.iloc[d + 1], mk.profile.iloc[d + 1]))
+    check("profile rows sum to 1; NaN during warm-up",
+          np.allclose(mk.profile.dropna().sum(axis=1), 1.0) and mk.profile.iloc[: C.PROFILE_DAYS].isna().all().all()
+          and list(mk.profile.columns) == C.SESSION_HOURS)
+
     c = np.full(days * 7, 50.0)
     c[40:] = 100.0
-    mk2 = data.build_market(_bars(days, c, 1e6), in_sample_end="2100-01-01")
+    mk2 = data.build_market(_bars(days, c, 1e6), tickers=None)
     check("jump flag on |hourly return| > JUMP_FILTER", bool(mk2.jump.iloc[40, 0]) and mk2.jump.sum().sum() == 1)
     b = _bars(days, 50.0, 1e6)
     b.loc[5, ["low", "high"]] = [49.0, 49.5]                  # vwap 50 outside → clipped to 49.5
-    mk3 = data.build_market(b, in_sample_end="2100-01-01")
+    mk3 = data.build_market(b, tickers=None)
     check("bar VWAP clipped into [low, high]", mk3.vwap.iloc[5, 0] == 49.5)
 
 
@@ -168,10 +196,11 @@ def test_real_data():
     mk = data.load_market()
     ar = Arrays(mk)
     od, info = orders.generate(mk, n_base=150)
-    days = mk.close.index.normalize()
-    in_top = all(mk.top.loc[days[o.decision_i], o.ticker] for o in od.itertuples())
-    check("orders: decision in out-of-sample, ticker in that day's Top-N",
-          in_top and od["decision_dt"].min() > pd.Timestamp(C.IN_SAMPLE_END))
+    check("market: exactly the 10 locked tickers", mk.tickers == C.TICKERS)
+    first_ok = pd.Timestamp(mk.info["first_profile_day"])
+    check("orders: only locked tickers, decisions after the profile/ADV warm-up",
+          set(od["ticker"]) <= set(C.TICKERS) and od["decision_dt"].min() >= first_ok
+          and od["decision_dt"].dt.year.nunique() == 4, f"first decision {od['decision_dt'].min()}")
     base = od.groupby("base_id")[["ticker", "side", "decision_i"]].nunique()
     check("orders: every size shares the same (time, ticker, side) draw",
           (base == 1).all().all() and od.groupby("base_id").size().eq(len(C.SIZE_BUCKETS_PCT_NAV)).all())
@@ -185,7 +214,9 @@ def test_real_data():
     check("every algo ran every order", res.groupby("algo")["order_id"].nunique().eq(len(od)).all())
     sched = fills[fills["algo"].isin(["TWAP", "VWAP"])]
     check("TWAP/VWAP children ≤ cap × bar value", (sched["participation"] <= C.SCHEDULE_CAP + 1e-9).all())
-    check("POV children ≤ rate × bar value", (fills.loc[fills.algo == "POV", "participation"] <= C.POV_RATE + 1e-9).all())
+    pov = fills[fills.algo.isin(list(C.POV_SCHEDULES))].copy()
+    pov["rate"] = [C.POV_SCHEDULES[a][h] for a, h in zip(pov["algo"], pd.to_datetime(pov["datetime"]).dt.hour)]
+    check("POV children ≤ scheduled rate(hour) × bar value", (pov["participation"] <= pov["rate"] + 1e-9).all())
     check("fills only in bars t+1 … t+H", fills.merge(od[["order_id", "decision_i"]], on="order_id")
           .eval("bar > decision_i and bar <= decision_i + @H").all())
     agg = fills.groupby(["order_id", "algo"])["qty"].sum()

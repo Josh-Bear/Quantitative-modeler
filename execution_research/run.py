@@ -1,7 +1,7 @@
 """
 run.py — execution-algorithm research, end to end, without the notebook.
 
-    python run.py              # full study (~1 min): main run + sensitivity + in-sample check
+    python run.py              # full study (~30 s): main run + sensitivity
     python run.py --quick      # 200 base draws, no sensitivity (smoke test)
 
 Writes output/*.csv and output/report.txt. Research.ipynb runs the same
@@ -25,15 +25,17 @@ def main():
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()
     n = 200 if args.quick else C.ORDERS_PER_BUCKET
-    ex = run_experiment(sensitivity=not args.quick, in_sample_check=not args.quick, n_base=n)
+    ex = run_experiment(sensitivity=not args.quick, n_base=n)
 
     lines = []
     emit = lambda s="": (print(s), lines.append(str(s)))
     mk, info = ex["market"], ex["orders_info"]
     emit("=" * 78)
-    emit("EXECUTION ALGORITHM RESEARCH — SET50 hourly, MARKET vs TWAP vs VWAP vs POV")
+    emit("EXECUTION ALGORITHM RESEARCH — SET50 hourly, " + " vs ".join(C.ALGOS))
     emit("=" * 78)
     emit(f"data     : {', '.join(mk.info['files'])}  ({mk.info['start']} → {mk.info['end']})")
+    emit(f"universe : {', '.join(C.TICKERS)} (locked); VWAP profile = rolling {C.PROFILE_DAYS}-day, "
+         f"first {mk.info['first_profile_day']}")
     emit(f"orders   : {info['n_orders']:,} = {info['n_base']:,} draws × {len(C.SIZE_BUCKETS_PCT_NAV)} sizes "
          f"(NAV {C.NAV_THB / 1e6:,.0f}M), decisions {info['first_decision_allowed']} → "
          f"{info['last_decision_allowed']}, rejected draws {info['rejected_draws']}")
@@ -61,15 +63,13 @@ def main():
         win = sens[sens["rank"] == 1].pivot_table(index=["param", "value"], columns="bucket",
                                                   values="algo", aggfunc="first")
         emit(win[sorted(win.columns, key=lambda b: float(b.split('%')[0]))].to_string())
-    if "summary_in" in ex:
-        emit()
-        emit("In-sample check (orders drawn 2023–24, VWAP profile calibrated on the same period)")
-        si = ex["summary_in"][["bucket", "algo", "is_mean", "is_std"]]
-        emit(si.round(2).to_string(index=False))
+    emit()
+    emit("Mean IS by year (bps)")
+    emit(ex["by_year"].round(2).to_string(index=False))
 
     C.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    for name in ["orders", "results", "fills", "summary", "paired", "by_hour", "by_vol", "sensitivity",
-                 "summary_in"]:
+    for name in ["orders", "results", "fills", "summary", "paired", "by_hour", "by_vol", "by_year",
+                 "sensitivity"]:
         if name in ex:
             ex[name].to_csv(C.OUTPUT_DIR / f"{name}.csv", index=False)
     (C.OUTPUT_DIR / "report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")

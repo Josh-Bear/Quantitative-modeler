@@ -8,7 +8,9 @@ What an algo wants in bar t+1+k (k = 0 … H−1):
   MARKET  everything left, no cap (first bar with trading)
   TWAP    cumulative target Q·(k+1)/H                      − filled, ≤ cap × bar value
   VWAP    cumulative target Q·Σ profile(hours ≤ k)/Σ profile − filled, ≤ cap × bar value
-  POV     rate × the bar's actual traded value (until Q is reached)
+          (profile = the rolling 21-day profile known at the open of the decision day)
+  POV*    rate(bar hour) × the bar's actual traded value (until Q is reached);
+          POV10 = 10 %, POV5 = 5 %, POV5/10 = 5 % morning (10–13) / 10 % afternoon (15–17)
 
 Cumulative targets make TWAP/VWAP catch up automatically after a capped or
 no-trade bar. A bar with zero traded value fills nothing. Whatever is still
@@ -40,7 +42,6 @@ COMPONENTS = ["timing", "spread", "impact", "commission", "opportunity"]
 class Params:
     spread_ticks: float = C.SPREAD_TICKS
     impact_y: float = C.IMPACT_Y
-    pov_rate: float = C.POV_RATE
     schedule_cap: float = C.SCHEDULE_CAP
     horizon: int = C.HORIZON_BARS
 
@@ -59,13 +60,18 @@ class Arrays:
         self.hours = mk.hours
         self.index = mk.close.index
         self.col = {t: j for j, t in enumerate(mk.tickers)}
-        self.profile = mk.profile.to_dict()
+        day_pos = {d: k for k, d in enumerate(mk.profile.index)}
+        self.profile_row = np.array([day_pos[d] for d in mk.days])   # bar → row of its day
+        self.profile = mk.profile.to_numpy()                          # days × SESSION_HOURS
+        self.hour_col = {h: k for k, h in enumerate(mk.profile.columns)}
 
 
 def _vwap_cum_weights(ar: Arrays, t: int, h: int) -> np.ndarray:
-    w = np.array([ar.profile.get(int(hr), 0.0) for hr in ar.hours[t + 1: t + 1 + h]])
-    if w.sum() <= 0:
-        w = np.ones(h)
+    """Weights of bars t+1 … t+h from the profile known at the decision day's open."""
+    prof = ar.profile[ar.profile_row[t]]
+    w = np.array([prof[ar.hour_col[int(hr)]] for hr in ar.hours[t + 1: t + 1 + h]])
+    if not np.isfinite(w).all() or w.sum() <= 0:
+        raise ValueError(f"no VWAP profile for decision bar {t}")
     return np.cumsum(w) / w.sum()
 
 
@@ -94,8 +100,9 @@ def execute(order, algo: str, ar: Arrays, p: Params, keep_fills: bool = False) -
             frac = (k + 1) / H if algo == "TWAP" else cumw[k]
             target = Q if k == H - 1 else cost.floor_lot(Q * frac)
             q = min(max(target - filled, 0), rem, cost.floor_lot(p.schedule_cap * val / px))
-        elif algo == "POV":
-            q = min(cost.floor_lot(p.pov_rate * val / px), rem)
+        elif algo in C.POV_SCHEDULES:
+            rate = C.POV_SCHEDULES[algo][int(ar.hours[i])]
+            q = min(cost.floor_lot(rate * val / px), rem)
         else:
             raise ValueError(f"unknown algo {algo}")
         if q <= 0:

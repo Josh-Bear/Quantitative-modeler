@@ -1,10 +1,12 @@
 """
 plots.py — the notebook's charts, one consistent style.
 
-Each algorithm keeps the same color in every chart (fixed categorical order,
-validated for color-vision deficiency). Two of the four hues sit below 3:1
-contrast on the surface, so every multi-series chart is direct-labeled and
-paired with a table in the notebook.
+Six algorithms, but no six-hue palette stays distinguishable on every pair
+(validated with the dataviz palette checker), so the encoding is composite:
+four hues that pass all-pairs (MARKET blue, TWAP yellow, VWAP green, POV family
+pink) and the three POV variants share the pink hue, separated by line style +
+marker (POV10 solid ●, POV5 dashed ■, POV5/10 dotted ▲). Every multi-series
+chart also has a legend, de-collided direct labels and a table in the notebook.
 """
 from __future__ import annotations
 
@@ -14,8 +16,17 @@ import pandas as pd
 
 from . import constants as C
 
-ALGO_COLOR = {"MARKET": "#2a78d6", "TWAP": "#eb6834", "VWAP": "#1baf7a", "POV": "#eda100"}
-SINGLE = "#2a78d6"
+_BLUE, _YELLOW, _GREEN, _PINK = "#2a78d6", "#eda100", "#008300", "#e87ba4"
+ALGO_STYLE = {                       # algo → (color, linestyle, marker)
+    "MARKET": (_BLUE, "-", "o"),
+    "TWAP": (_YELLOW, "-", "o"),
+    "VWAP": (_GREEN, "-", "o"),
+    "POV10": (_PINK, "-", "o"),
+    "POV5": (_PINK, "--", "s"),
+    "POV5/10": (_PINK, ":", "^"),
+}
+RAMP = ["#86b6ef", "#2a78d6", "#104281"]          # one-hue ordinal ramp (light → dark)
+SINGLE = _BLUE
 SURFACE, TEXT, TEXT_2, GRID = "#fcfcfb", "#1f1f1e", "#5f5e5a", "#e1e0d9"
 
 
@@ -31,7 +42,12 @@ def style():
     })
 
 
-def _spread_out(ys: dict[str, float], ax, min_frac: float = 0.05) -> dict[str, float]:
+def _kw(algo: str) -> dict:
+    c, ls, m = ALGO_STYLE[algo]
+    return {"color": c, "linestyle": ls, "marker": m, "label": algo}
+
+
+def _spread_out(ys: dict[str, float], ax, min_frac: float = 0.045) -> dict[str, float]:
     """Nudge label y-positions apart so no two are closer than min_frac of the axis range."""
     lo, hi = ax.get_ylim()
     gap = (hi - lo) * min_frac
@@ -52,43 +68,55 @@ def _label_points(ax, points: dict[str, tuple[float, float]], text: dict[str, st
 
 
 def _label_ends(ax, x, series: dict[str, np.ndarray], fmt="{:.1f}"):
-    """Direct label at the right end of each line (text ink, not series color)."""
     _label_points(ax, {n: (x[-1], y[-1]) for n, y in series.items()},
                   {n: f"{n}  {fmt.format(y[-1])}" for n, y in series.items()})
 
 
-def _legend_below(ax):
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=4)
+def _legend_below(ax, ncol: int = 6):
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=ncol)
 
 
-def volume_profile(profile: pd.Series):
-    fig, ax = plt.subplots(figsize=(8, 3.4))
-    labels = [f"{h:02d}:00" for h in profile.index]
-    bars = ax.bar(labels, profile.values * 100, color=SINGLE, width=0.6)
-    ax.bar_label(bars, fmt="%.1f%%", color=TEXT, fontsize=9, padding=2)
+def _bucket_cols(df: pd.DataFrame) -> list[str]:
+    return sorted(df.columns, key=lambda b: float(str(b).split("%")[0]))
+
+
+# ─── data ─────────────────────────────────────────────────────────────────────
+def volume_profile(profile: pd.DataFrame):
+    """Median rolling profile per bar hour, whiskers = 5th–95th percentile across days."""
+    p = profile.dropna() * 100
+    med, lo, hi = p.median(), p.quantile(0.05), p.quantile(0.95)
+    fig, ax = plt.subplots(figsize=(8, 3.6))
+    labels = [f"{h:02d}:00" for h in p.columns]
+    bars = ax.bar(labels, med.values, color=SINGLE, width=0.6,
+                  yerr=[med - lo, hi - med], ecolor=TEXT_2, capsize=4, error_kw={"lw": 1})
+    for b, v, top in zip(bars, med.values, hi.values):
+        ax.text(b.get_x() + b.get_width() / 2, top + 0.6, f"{v:.1f}%", ha="center", color=TEXT, fontsize=9)
     ax.set_ylabel("share of daily traded value (%)")
-    ax.set_title("Intraday volume profile (in-sample 2023–24) — input to VWAP")
+    ax.set_title(f"VWAP input: rolling {C.PROFILE_DAYS}-day volume profile (median, whiskers 5–95 %)")
     ax.grid(axis="x", visible=False)
     fig.tight_layout()
     return fig
 
 
-def universe_frequency(top: pd.DataFrame, start: str):
-    freq = top.loc[start:].mean().sort_values()
-    freq = freq[freq > 0]
-    fig, ax = plt.subplots(figsize=(8, 0.3 * len(freq) + 0.8))
-    bars = ax.barh(freq.index, freq.values * 100, color=SINGLE, height=0.6)
-    ax.bar_label(bars, fmt="%.0f%%", color=TEXT, fontsize=8, padding=2)
-    ax.set_xlabel("share of out-of-sample days in the point-in-time Top 10 (%)")
-    ax.set_title("Who is in the Top 10 by trailing 20-day traded value")
-    ax.grid(axis="y", visible=False)
+def profile_over_time(profile: pd.DataFrame, hours=(10, 17, 11)):
+    p = profile.dropna() * 100
+    fig, ax = plt.subplots(figsize=(9, 3.8))
+    ends = {}
+    for h, col in zip(hours, RAMP):
+        ax.plot(p.index, p[h], color=col, lw=1.6, label=f"{h:02d}:00")
+        ends[f"{h:02d}:00"] = (p.index[-1], p[h].iloc[-1])
+    _label_points(ax, ends, {k: k for k in ends})
+    ax.set_ylabel("share of daily value (%)")
+    ax.set_title("How the profile drifts — the VWAP weights move with the market")
+    _legend_below(ax, 3)
     fig.tight_layout()
     return fig
 
 
+# ─── algorithms ───────────────────────────────────────────────────────────────
 def example_schedule(fills: pd.DataFrame, order: pd.Series):
     """Cumulative % filled per algo for one parent order."""
-    fig, ax = plt.subplots(figsize=(8, 3.8))
+    fig, ax = plt.subplots(figsize=(9, 4.2))
     ends = {}
     x_all = np.arange(0, C.HORIZON_BARS + 1)
     for a in C.ALGOS:
@@ -97,11 +125,13 @@ def example_schedule(fills: pd.DataFrame, order: pd.Series):
         for _, r in f.iterrows():
             cum[int(r.slice_k):] += r.qty
         y = cum / order.qty * 100
-        ax.step(x_all, y, where="post", color=ALGO_COLOR[a], label=a)
+        kw = _kw(a)
+        kw.pop("marker")
+        ax.step(x_all, y, where="post", **kw)
         ends[a] = y
     _label_points(ax, {a: (1, y[1]) for a, y in ends.items()},
                   {a: f"{a} {y[1]:.0f}%" for a, y in ends.items()}, side="left")
-    ax.set_xlim(0, C.HORIZON_BARS + 0.3)
+    ax.set_xlim(-0.9, C.HORIZON_BARS + 0.3)
     ax.set_xticks(x_all, ["t"] + [f"t+{k}" for k in x_all[1:]])
     ax.set_ylabel("cumulative filled (%)")
     ax.set_title(f"How each algo works one order — {order.ticker} {order.bucket} ({order.pct_adv:.2%} of ADV)\n"
@@ -111,21 +141,23 @@ def example_schedule(fills: pd.DataFrame, order: pd.Series):
     return fig
 
 
+# ─── results ──────────────────────────────────────────────────────────────────
 def is_by_size(summ: pd.DataFrame, col: str = "is_mean", title: str = "Mean implementation shortfall by order size",
-               ylabel: str = "bps", ci: bool = True):
-    fig, ax = plt.subplots(figsize=(8.5, 4.2))
+               ylabel: str = "bps", ci: bool = True, algos=None):
+    algos = algos or C.ALGOS
+    fig, ax = plt.subplots(figsize=(9, 4.6))
     ends = {}
-    for a in C.ALGOS:
+    for a in algos:
         g = summ[summ.algo == a].sort_values("pct_nav")
         x = g["pct_nav"].to_numpy() * 100
         y = g[col].to_numpy()
         if ci and "is_ci_lo" in g:
-            ax.fill_between(x, g["is_ci_lo"], g["is_ci_hi"], color=ALGO_COLOR[a], alpha=0.12, linewidth=0)
-        ax.plot(x, y, marker="o", color=ALGO_COLOR[a], label=a)
+            ax.fill_between(x, g["is_ci_lo"], g["is_ci_hi"], color=ALGO_STYLE[a][0], alpha=0.08, linewidth=0)
+        ax.plot(x, y, **_kw(a))
         ends[a] = y
     _label_ends(ax, x, ends)
     ax.set_xticks(x, [f"{v:g}%" for v in x])
-    ax.set_xlim(x[0] - 1, x[-1] + 4)
+    ax.set_xlim(x[0] - 1, x[-1] + 5)
     ax.set_xlabel("order size (% of NAV 100M)")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
@@ -135,16 +167,16 @@ def is_by_size(summ: pd.DataFrame, col: str = "is_mean", title: str = "Mean impl
 
 
 def frontier(summ: pd.DataFrame):
-    fig, ax = plt.subplots(figsize=(8.5, 4.6))
+    fig, ax = plt.subplots(figsize=(9, 4.8))
     ends = {}
     for a in C.ALGOS:
         g = summ[summ.algo == a].sort_values("pct_nav")
-        ax.plot(g["is_std"], g["is_mean"], marker="o", color=ALGO_COLOR[a], label=a)
+        ax.plot(g["is_std"], g["is_mean"], **_kw(a))
         ends[a] = (g["is_std"].iloc[-1], g["is_mean"].iloc[-1])
     lo, hi = ax.get_xlim()
-    ax.set_xlim(lo, hi + (hi - lo) * 0.08)
-    # put each label to the right of the rightmost line in its cluster so it never crosses a line
-    right = {a: max(x for b, (x, y) in ends.items() if abs(x - ends[a][0]) < 10) + 0.8 for a in ends}
+    ax.set_xlim(lo, hi + (hi - lo) * 0.12)
+    # label to the right of the rightmost line in its cluster so it never crosses a line
+    right = {a: max(x for (x, _) in ends.values() if abs(x - ends[a][0]) < 8) + 0.8 for a in ends}
     _label_points(ax, {a: (right[a], y) for a, (x, y) in ends.items()}, {a: a for a in ends})
     ax.set_xlabel("risk: std of IS per order (bps)")
     ax.set_ylabel("cost: mean IS (bps)")
@@ -156,15 +188,16 @@ def frontier(summ: pd.DataFrame):
 
 def by_group(table: pd.DataFrame, group: str, bucket: str, title: str, xlabel: str):
     t = table[table.bucket == bucket].set_index(group)
-    fig, ax = plt.subplots(figsize=(8.5, 4.0))
+    fig, ax = plt.subplots(figsize=(9, 4.4))
     x = np.arange(len(t))
     ends = {}
     for a in C.ALGOS:
-        ax.plot(x, t[a].to_numpy(), marker="o", color=ALGO_COLOR[a], label=a)
+        ax.plot(x, t[a].to_numpy(), **_kw(a))
         ends[a] = t[a].to_numpy()
     _label_ends(ax, x, ends)
-    ax.set_xticks(x, [f"{v:02d}:00" if isinstance(v, (int, np.integer)) else str(v) for v in t.index])
-    ax.set_xlim(-0.3, len(t) - 1 + 0.9)
+    ticks = [f"{v:02d}:00" if group == "hour" else str(v) for v in t.index]
+    ax.set_xticks(x, ticks)
+    ax.set_xlim(-0.3, len(t) - 1 + 1.1)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("mean IS (bps)")
     ax.set_title(title)
@@ -175,19 +208,20 @@ def by_group(table: pd.DataFrame, group: str, bucket: str, title: str, xlabel: s
 
 def sensitivity(sens: pd.DataFrame, bucket: str):
     params = list(dict.fromkeys(sens["param"]))
-    fig, axes = plt.subplots(1, len(params), figsize=(3.4 * len(params), 3.6), sharey=True)
-    for ax, prm in zip(np.atleast_1d(axes), params):
+    fig, axes = plt.subplots(1, len(params), figsize=(3.8 * len(params), 3.9), sharey=True)
+    axes = np.atleast_1d(axes)
+    for ax, prm in zip(axes, params):
         g = sens[(sens.param == prm) & (sens.bucket == bucket)]
         for a in C.ALGOS:
             h = g[g.algo == a].sort_values("value")
-            ax.plot(h["value"], h["is_bps"], marker="o", color=ALGO_COLOR[a], label=a)
-        base = g[g.is_base]["value"].iloc[0]
-        ax.axvline(base, color=TEXT_2, lw=0.8, ls=":")
+            ax.plot(h["value"], h["is_bps"], **_kw(a))
+        ax.axvline(g[g.is_base]["value"].iloc[0], color=TEXT_2, lw=0.8, ls=":")
         ax.set_title(prm, fontsize=10)
         ax.set_xticks(sorted(g["value"].unique()))
-    np.atleast_1d(axes)[0].set_ylabel(f"mean IS (bps), {bucket}")
-    np.atleast_1d(axes)[0].legend(loc="upper left", fontsize=8)
+    axes[0].set_ylabel(f"mean IS (bps), {bucket}")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=6, frameon=False)
     fig.suptitle(f"Sensitivity, one parameter at a time ({bucket}; dotted = base value)",
                  x=0.01, ha="left", fontweight="bold", color=TEXT)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     return fig
